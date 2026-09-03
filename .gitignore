@@ -216,3 +216,38 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# База данных (локальный файл)
+data/*.db
+data/*.sqlite
+
+# Виртуальное окружение
+venv/
+env/
+
+# Секретные данные
+.env
+
+# Временные файлы Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Операционная система
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
