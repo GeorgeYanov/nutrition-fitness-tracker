@@ -124,3 +124,75 @@ def calculate_tdee(bmr, activity_level=1.55):
         float: TDEE в ккал/день
     """
     return bmr * activity_level
+
+def calculate_macro_goals(current_weight, target_weight, height, age, gender, activity_multiplier):
+    """
+    Автоматически рассчитывает цели по макронутриентам на основе целей по весу.
+    """
+    # 1. Считаем TDEE на основе ТЕКУЩЕГО веса (это безопасная база)
+    bmr = calculate_bmr(current_weight, height, age, gender)
+    tdee = calculate_tdee(bmr, activity_multiplier)
+    
+    # 2. Определяем корректировку калорий
+    weight_diff = target_weight - current_weight
+    if weight_diff < -1:  # Цель: похудение
+        target_calories = tdee - 400  # Умеренный дефицит
+    elif weight_diff > 1:  # Цель: набор массы
+        target_calories = tdee + 300  # Умеренный профицит
+    else:  # Цель: поддержание
+        target_calories = tdee
+        
+    # 3. Белок: 2.0г на 1 кг ЦЕЛЕВОГО веса (для поддержки/роста мышц)
+    target_protein = target_weight * 2.0
+    
+    # 4. Жиры: 0.9г на 1 кг ЦЕЛЕВОГО веса (для гормонального здоровья)
+    target_fat = target_weight * 0.9
+    
+    # 5. Углеводы: все оставшиеся калории
+    protein_cals = target_protein * 4
+    fat_cals = target_fat * 9
+    remaining_cals = target_calories - (protein_cals + fat_cals)
+    target_carbs = remaining_cals / 4
+    
+    # Защита: углеводы не должны падать ниже 50г (минимум для работы мозга)
+    if target_carbs < 50:
+        target_carbs = 50
+        target_calories = protein_cals + fat_cals + (50 * 4)
+
+    return {
+        'calories': round(target_calories),
+        'protein': round(target_protein),
+        'fat': round(target_fat),
+        'carbs': round(target_carbs)
+    }
+
+def calculate_complex_meal_totals(components_data, foods_dict):
+    """
+    Рассчитывает итоговые КБЖУ сложного блюда на основе его компонентов.
+    
+    Args:
+        components_data: список словарей [{'food_id': 1, 'weight': 100, 'method': 'Варка'}, ...]
+        foods_dict: словарь объектов Food из БД, где ключ - food_id
+    
+    Returns:
+        dict с общими весами и макросами
+    """
+    totals = {
+        'weight': 0.0,
+        'calories': 0.0,
+        'protein': 0.0,
+        'fat': 0.0,
+        'carbs': 0.0
+    }
+    
+    for comp in components_data:
+        food = foods_dict.get(comp['food_id'])
+        if food:
+            multiplier = comp['weight'] / 100.0
+            totals['weight'] += comp['weight']
+            totals['calories'] += food.calories_per_100g * multiplier
+            totals['protein'] += food.protein_per_100g * multiplier
+            totals['fat'] += food.fat_per_100g * multiplier
+            totals['carbs'] += food.carbs_per_100g * multiplier
+            
+    return totals

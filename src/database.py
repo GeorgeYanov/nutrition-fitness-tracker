@@ -51,6 +51,7 @@ class User(Base):
     habits = relationship('UserHabit', back_populates='user', cascade='all, delete-orphan')
     food_logs = relationship('FoodLog', back_populates='user', cascade='all, delete-orphan')
     workouts = relationship('Workout', back_populates='user', cascade='all, delete-orphan')
+    complex_meals = relationship('ComplexMeal', back_populates='user', cascade='all, delete-orphan')
 
 
 class UserMeasurement(Base):
@@ -268,6 +269,40 @@ class WorkoutLog(Base):
     workout = relationship('Workout', back_populates='logs')
     exercise = relationship('Exercise', back_populates='logs')
 
+class ComplexMeal(Base):
+    """Сложное блюдо (рецепт), состоящее из нескольких компонентов"""
+    __tablename__ = 'complex_meals'
+    
+    meal_id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    date = Column(Date, nullable=False)
+    meal_type = Column(String(20), nullable=False) # breakfast, lunch, dinner, snack
+    dish_name = Column(String(200), nullable=False) # Например, "Гречка с курицей"
+    
+    # Суммарные значения (рассчитываются при сохранении)
+    total_weight = Column(Float)
+    total_calories = Column(Float)
+    total_protein = Column(Float)
+    total_fat = Column(Float)
+    total_carbs = Column(Float)
+    
+    components = relationship('ComplexMealComponent', back_populates='meal', cascade='all, delete-orphan')
+    user = relationship('User', back_populates='complex_meals')
+
+
+class ComplexMealComponent(Base):
+    """Отдельный ингредиент в составе сложного блюда"""
+    __tablename__ = 'complex_meal_components'
+    
+    component_id = Column(Integer, primary_key=True)
+    meal_id = Column(Integer, ForeignKey('complex_meals.meal_id'), nullable=False)
+    food_id = Column(Integer, ForeignKey('foods.food_id'), nullable=False) # Ссылка на справочник продуктов
+    
+    weight = Column(Float, nullable=False) # Вес компонента в граммах
+    cooking_method = Column(String(255)) # Например: "Сырой", "Варка, затем обжарка"
+    
+    meal = relationship('ComplexMeal', back_populates='components')
+    food = relationship('Food')
 
 # ============================================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ

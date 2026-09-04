@@ -4,11 +4,8 @@
 import streamlit as st
 from datetime import date
 import pandas as pd
-from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult
-from calculations import (
-       calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
-       calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals
-   )
+from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult, ComplexMeal, ComplexMealComponent
+from calculations import calculate_food_calories, calculate_daily_totals, calculate_workout_volume, calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, calculate_complex_meal_totals
 from auth import register_user, authenticate_user
 
 # Настройка страницы
@@ -516,7 +513,125 @@ else:
                             macros = calculate_food_calories(selected_food, weight)
                             st.success(f"✅ Добавлено! Калории: {macros['calories']:.0f} ккал")
                             st.balloons()
+                            
+                st.markdown("---")
+                st.subheader("🍲 Конструктор сложного блюда (Рецепт)")
+                st.caption("Идеально для домашних блюд. Добавляй ингредиенты по одному, указывай вес и способ приготовления, а затем сохрани всё блюдо целиком.")
                 
+                # Инициализация списка компонентов в session_state
+                if 'recipe_components' not in st.session_state:
+                    st.session_state.recipe_components = []
+                    
+                # =========================================================================
+                # ЧАСТЬ 1: ДИНАМИЧЕСКИЙ СПИСОК И ДОБАВЛЕНИЕ (СНАРУЖИ ФОРМЫ)
+                # =========================================================================
+                
+                # Отображение уже добавленных компонентов
+                if st.session_state.recipe_components:
+                    st.markdown("##### 📋 Текущие ингредиенты:")
+                    for idx, comp in enumerate(st.session_state.recipe_components):
+                        col_a, col_b, col_c, col_d = st.columns([3, 1, 2, 1])
+                        with col_a:
+                            st.write(f"**{comp['food_name']}**")
+                        with col_b:
+                            st.write(f"{comp['weight']} г")
+                        with col_c:
+                            st.caption(f"Приготовление: {comp['method']}")
+                        with col_d:
+                            # Кнопка удаления (разрешена снаружи формы)
+                            if st.button("❌", key=f"remove_comp_{idx}"):
+                                st.session_state.recipe_components.pop(idx)
+                                st.rerun()
+                    st.markdown("---")
+                
+                st.markdown("##### ➕ Добавить новый ингредиент")
+                col_add1, col_add2, col_add3 = st.columns([3, 1, 2])
+                with col_add1:
+                    foods = session.query(Food).order_by(Food.name).all()
+                    food_options = {f.name: f for f in foods}
+                    new_comp_food = st.selectbox("Продукт из справочника:", list(food_options.keys()), key="new_comp_food_select")
+                with col_add2:
+                    new_comp_weight = st.number_input("Вес (г)", min_value=1, value=100, step=10, key="new_comp_weight")
+                with col_add3:
+                    new_comp_method = st.text_input("Способ приготовления", value="Без обработки", key="new_comp_method", help="Например: 'Варка 10 мин, затем обжарка'")
+                
+                # Кнопка добавления в список (СНАРУЖИ формы, поэтому st.button разрешен!)
+                if st.button("Добавить ингредиент в список", use_container_width=True):
+                    selected_food = food_options[new_comp_food]
+                    st.session_state.recipe_components.append({
+                        'food_id': selected_food.food_id,
+                        'food_name': selected_food.name,
+                        'weight': new_comp_weight,
+                        'method': new_comp_method
+                    })
+                    st.success(f"✅ {selected_food.name} добавлен!")
+                    st.rerun() # Мгновенно обновляем список выше
+
+                st.markdown("---")
+                
+                # =========================================================================
+                # ЧАСТЬ 2: ФИНАЛЬНОЕ СОХРАНЕНИЕ (ВНУТРИ ФОРМЫ)
+                # =========================================================================
+                
+                if st.session_state.recipe_components:
+                    with st.form("save_complex_meal_form"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            dish_name = st.text_input("🍽 Название готового блюда (например, 'Плов с курицей'):")
+                        with col2:
+                            meal_type = st.selectbox("Прием пищи:", ["breakfast", "lunch", "dinner", "snack"], format_func=lambda x: {"breakfast": "🌅 Завтрак", "lunch": "☀️ Обед", "dinner": "🌙 Ужин", "snack": "🍪 Перекус"}[x])
+                        
+                        meal_date = st.date_input("Дата приготовления:", value=date.today())
+                        
+                        st.info(f"В блюдо будет добавлено ингредиентов: **{len(st.session_state.recipe_components)}**")
+                        
+                        # ЕДИНСТВЕННАЯ кнопка внутри формы
+                        submit_dish = st.form_submit_button("💾 Сохранить сложное блюдо в дневник", type="primary", use_container_width=True)
+                        
+                        if submit_dish:
+                            if not dish_name:
+                                st.error("❌ Введи название блюда!")
+                            else:
+                                # 1. Собираем все продукты в словарь для быстрого доступа
+                                foods_dict = {f.food_id: f for f in session.query(Food).all()}
+                                
+                                # 2. Считаем итоги через нашу функцию
+                                totals = calculate_complex_meal_totals(st.session_state.recipe_components, foods_dict)
+                                
+                                # 3. Создаем запись ComplexMeal
+                                new_meal = ComplexMeal(
+                                    user_id=current_user.user_id,
+                                    date=meal_date,
+                                    meal_type=meal_type,
+                                    dish_name=dish_name,
+                                    total_weight=totals['weight'],
+                                    total_calories=totals['calories'],
+                                    total_protein=totals['protein'],
+                                    total_fat=totals['fat'],
+                                    total_carbs=totals['carbs']
+                                )
+                                session.add(new_meal)
+                                session.flush() # Получаем meal_id
+                                
+                                # 4. Создаем записи компонентов
+                                for comp in st.session_state.recipe_components:
+                                    new_comp = ComplexMealComponent(
+                                        meal_id=new_meal.meal_id,
+                                        food_id=comp['food_id'],
+                                        weight=comp['weight'],
+                                        cooking_method=comp['method']
+                                    )
+                                    session.add(new_comp)
+                                
+                                session.commit()
+                                
+                                # 5. Очищаем session_state и радуемся
+                                st.session_state.recipe_components = []
+                                st.success(f"🎉 Блюдо '{dish_name}' сохранено! Итого: {totals['calories']:.0f} ккал, Б:{totals['protein']:.1f} Ж:{totals['fat']:.1f} У:{totals['carbs']:.1f}")
+                                st.balloons()
+                                st.rerun()
+                else:
+                    st.info("👆 Сначала добавь хотя бы один ингредиент в список выше, чтобы сохранить блюдо.")    
                 st.markdown("---")
                 
                 # ====== ДНЕВНИК ЗА ВЫБРАННУЮ ДАТУ ======
