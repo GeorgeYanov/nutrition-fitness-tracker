@@ -382,6 +382,165 @@ elif page == "🏋️ Тренировки":
     st.header("Дневник тренировок")
     
     user = session.query(User).first()
+    if not user:
+        st.error("Пользователь не найден!")
+    else:
+        # ====== 1. ВЫБОР ДАТЫ ======
+        selected_date = st.date_input(
+            "📅 Выбери дату для просмотра или добавления:",
+            value=date.today(),
+            max_value=date.today()
+        )
+        st.markdown("---")
+        
+        # ====== 2. КОНСТРУКТОР ТРЕНИРОВКИ ======
+        st.subheader("➕ Новая тренировка")
+        
+        # Базовые параметры тренировки
+        col1, col2 = st.columns(2)
+        with col1:
+            w_date = st.date_input("Дата:", value=selected_date, key="w_date_input")
+            w_duration = st.number_input("Длительность (мин):", min_value=1, value=60, step=5, key="w_dur")
+        with col2:
+            w_intensity = st.selectbox("Общая интенсивность:", ["Легкая", "Средняя", "Тяжелая", "Максимальная"], key="w_int")
+        
+        st.markdown("---")
+        st.markdown("##### Добавить упражнение")
+        
+        # Инициализация временного списка упражнений в session_state
+        if 'temp_exercises' not in st.session_state:
+            st.session_state.temp_exercises = []
+        
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            exercises = session.query(Exercise).all()
+            ex_options = {e.name: e for e in exercises}
+            ex_choice = st.selectbox(
+                "Упражнение:", 
+                options=["🔍 Другое (добавить свое)"] + list(ex_options.keys()),
+                key="ex_choice_select"
+            )
+            
+            # Если выбираем "Другое", показываем поля для нового упражнения
+            if ex_choice == "🔍 Другое (добавить свое)":
+                new_ex_name = st.text_input("Название упражнения:", key="new_ex_name")
+                new_ex_type = st.selectbox("Тип:", ["strength", "cardio", "flexibility"], key="new_ex_type")
+                new_ex_muscles = st.text_input("Целевые мышцы (через запятую):", key="new_ex_muscles")
+        
+        with col_b:
+            ex_sets = st.number_input("Подходы:", min_value=1, value=3, key="ex_sets")
+            ex_reps = st.number_input("Повторения:", min_value=1, value=10, key="ex_reps")
+        with col_c:
+            ex_weight = st.number_input("Вес (кг):", min_value=0.0, value=20.0, step=2.5, key="ex_weight")
+        
+        # Кнопка добавления упражнения во временный список
+        if st.button("➕ Добавить упражнение в тренировку", use_container_width=True):
+            if ex_choice == "🔍 Другое (добавить свое)":
+                if not new_ex_name:
+                    st.error("❌ Введите название упражнения!")
+                else:
+                    # Проверяем, есть ли уже такое упражнение
+                    existing_ex = session.query(Exercise).filter(Exercise.name.ilike(new_ex_name)).first()
+                    if existing_ex:
+                        ex_obj = existing_ex
+                        st.info(f"ℹ️ Упражнение '{new_ex_name}' уже есть в справочнике")
+                    else:
+                        ex_obj = Exercise(
+                            name=new_ex_name, 
+                            exercise_type=new_ex_type, 
+                            target_muscles=new_ex_muscles
+                        )
+                        session.add(ex_obj)
+                        session.flush() # Получаем ex_id
+            else:
+                ex_obj = ex_options[ex_choice]
+            
+            # Добавляем в session_state
+            st.session_state.temp_exercises.append({
+                'exercise_id': ex_obj.exercise_id,
+                'exercise_name': ex_obj.name,
+                'sets': ex_sets,
+                'reps': ex_reps,
+                'weight': ex_weight
+            })
+            st.success(f"✅ {ex_obj.name} добавлен в список!")
+            st.rerun() # Перезагружаем, чтобы обновить список
+        
+        # ====== 3. ОТОБРАЖЕНИЕ ТЕКУЩЕЙ ТРЕНИРОВКИ ======
+        if st.session_state.temp_exercises:
+            st.markdown("###### 📋 Текущая тренировка:")
+            for idx, temp_ex in enumerate(st.session_state.temp_exercises):
+                col_d1, col_d2, col_d3 = st.columns([3, 2, 1])
+                with col_d1:
+                    st.write(f"**{temp_ex['exercise_name']}**")
+                with col_d2:
+                    st.write(f"{temp_ex['sets']} × {temp_ex['reps']} @ {temp_ex['weight']} кг")
+                with col_d3:
+                    if st.button("🗑️", key=f"remove_temp_{idx}"):
+                        st.session_state.temp_exercises.pop(idx)
+                        st.rerun()
+            
+            st.markdown("")
+            # Кнопка сохранения всей тренировки в БД
+            if st.button("💾 Сохранить тренировку целиком", type="primary", use_container_width=True):
+                # 1. Создаем запись Workout
+                new_workout = Workout(
+                    user_id=user.user_id,
+                    date=w_date,
+                    duration_minutes=w_duration
+                )
+                session.add(new_workout)
+                session.flush() # Получаем workout_id
+                
+                # 2. Создаем записи WorkoutLog для каждого упражнения
+                for temp_ex in st.session_state.temp_exercises:
+                    new_log = WorkoutLog(
+                        workout_id=new_workout.workout_id,
+                        exercise_id=temp_ex['exercise_id'],
+                        sets=temp_ex['sets'],
+                        reps=temp_ex['reps'],
+                        weight=temp_ex['weight'],
+                        intensity=w_intensity
+                    )
+                    session.add(new_log)
+                
+                # 3. Коммитим и очищаем session_state
+                session.commit()
+                st.session_state.temp_exercises = [] 
+                st.success("🎉 Тренировка успешно сохранена!")
+                st.balloons()
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # ====== 4. ПРОСМОТР ТРЕНИРОВОК ЗА ВЫБРАННУЮ ДАТУ ======
+        st.subheader(f"📋 Тренировки за {selected_date.strftime('%d.%m.%Y')}")
+        
+        day_workouts = session.query(Workout).filter(
+            Workout.user_id == user.user_id,
+            Workout.date == selected_date
+        ).order_by(Workout.workout_id.desc()).all()
+        
+        if day_workouts:
+            for workout in day_workouts:
+                volume = calculate_workout_volume(workout.logs)
+                # Берем интенсивность из первого упражнения (для простоты отображения)
+                intensity_display = workout.logs[0].intensity if workout.logs else "N/A"
+                
+                with st.expander(f"🏋️ {workout.duration_minutes} мин | Интенсивность: {intensity_display} | Объем: {volume:.1f} кг"):
+                    for log in workout.logs:
+                        st.write(f"- **{log.exercise.name}**: {log.sets}×{log.reps} @ {log.weight} кг")
+                    
+                    st.markdown("")
+                    if st.button("🗑️ Удалить тренировку", key=f"del_w_{workout.workout_id}"):
+                        session.delete(workout)
+                        session.commit()
+                        st.rerun()
+        else:
+            st.info(f"📭 Тренировок за {selected_date.strftime('%d.%m.%Y')} не найдено")
+    st.header("Дневник тренировок")
+    
+    user = session.query(User).first()
     
     if not user:
         st.error("Пользователь не найден!")
