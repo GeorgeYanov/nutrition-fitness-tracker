@@ -210,7 +210,7 @@ class Food(Base):
     caffeine = Column(Float)
     alcohol = Column(Float)
     
-    logs = relationship('FoodLog', back_populates='food')
+    logs = relationship('FoodLog', back_populates='food', cascade='all, delete-orphan')
 
 
 class FoodLog(Base):
