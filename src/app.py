@@ -15,7 +15,7 @@ st.set_page_config(page_title="Fitness Tracker", page_icon="🏋️", layout="wi
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
 if "user_name" not in st.session_state:
-    st.session_state.user_name = ""
+       st.session_state.user_name = ""
 
 def logout():
     st.session_state.user_id = None
@@ -98,7 +98,7 @@ else:
         if page == "🏠 Главная":
             st.header(f"Добро пожаловать, {current_user.full_name.split()[0]}! 👋")
             
-            latest_measurement = current_user.measurements[-1] if current_user.measurements else None
+            latest_measurement = session.query(UserMeasurement).filter(UserMeasurement.user_id == current_user.user_id).order_by(UserMeasurement.date.desc()).first()
             
             st.markdown("### 🧮 Твои метаболические показатели")
             if latest_measurement and latest_measurement.weight and current_user.height and current_user.birth_date:
@@ -127,7 +127,7 @@ else:
             st.markdown("---")
             st.subheader("📈 Статистика питания за сегодня")
             today = date.today()
-            today_logs = session.query(FoodLog).filter(FoodLog.user_id == current_current_user.user_id, FoodLog.date == today).all()
+            today_logs = session.query(FoodLog).filter(FoodLog.user_id == current_user.user_id, FoodLog.date == today).all()
             
             if today_logs:
                 totals = calculate_daily_totals(today_logs)
