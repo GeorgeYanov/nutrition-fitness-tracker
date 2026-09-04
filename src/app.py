@@ -661,6 +661,293 @@ elif page == "🏋️ Тренировки":
 # ============================================================================
 
 elif page == "📊 Прогресс":
+    st.header("📊 Прогресс и аналитика")
+    
+    user = session.query(User).first()
+    
+    if not user:
+        st.error("Пользователь не найден!")
+    else:
+        # Создаем вкладки для разных типов графиков
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📈 Вес тела", 
+            "💪 Силовые показатели", 
+            "🥧 БЖУ за день",
+            "🔥 Калории по дням"
+        ])
+        
+        # ====================================================================
+        # ВКЛАДКА 1: ГРАФИК ВЕСА ТЕЛА
+        # ====================================================================
+        with tab1:
+            st.subheader("📈 Динамика веса тела")
+            
+            # Получаем все замеры веса
+            measurements = session.query(UserMeasurement).filter(
+                UserMeasurement.user_id == user.user_id,
+                UserMeasurement.weight.isnot(None)
+            ).order_by(UserMeasurement.date).all()
+            
+            if measurements:
+                import plotly.graph_objects as go
+                
+                dates = [m.date for m in measurements]
+                weights = [m.weight for m in measurements]
+                
+                # Создаем интерактивный график
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=dates,
+                    y=weights,
+                    mode='lines+markers',
+                    name='Вес',
+                    line=dict(color='#1f77b4', width=3),
+                    marker=dict(size=8),
+                    hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Вес: %{y:.1f} кг<extra></extra>'
+                ))
+                
+                fig.update_layout(
+                    title='Изменение веса по дням',
+                    xaxis_title='Дата',
+                    yaxis_title='Вес (кг)',
+                    hovermode='x unified',
+                    height=500,
+                    template='plotly_white'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Статистика
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Текущий вес", f"{weights[-1]:.1f} кг")
+                with col2:
+                    st.metric("Минимальный вес", f"{min(weights):.1f} кг")
+                with col3:
+                    st.metric("Максимальный вес", f"{max(weights):.1f} кг")
+                
+                # Изменение за период
+                if len(weights) > 1:
+                    change = weights[-1] - weights[0]
+                    if change > 0:
+                        st.info(f"📈 Изменение за весь период: **+{change:.1f} кг**")
+                    elif change < 0:
+                        st.success(f"📉 Изменение за весь период: **{change:.1f} кг**")
+                    else:
+                        st.info(f"➡️ Вес не изменился за весь период")
+            else:
+                st.warning("📭 Нет данных о замерах веса. Добавь замеры на главной странице.")
+        
+        # ====================================================================
+        # ВКЛАДКА 2: СИЛОВЫЕ ПОКАЗАТЕЛИ
+        # ====================================================================
+        with tab2:
+            st.subheader("💪 Прогресс в упражнениях")
+            
+            # Выбор упражнения
+            exercises_with_logs = session.query(Exercise).join(WorkoutLog).all()
+            
+            if exercises_with_logs:
+                ex_options = {e.name: e for e in exercises_with_logs}
+                selected_ex_name = st.selectbox(
+                    "Выбери упражнение:",
+                    options=list(ex_options.keys())
+                )
+                
+                if selected_ex_name:
+                    selected_ex = ex_options[selected_ex_name]
+                    
+                    # Получаем все подходы по этому упражнению
+                    logs = session.query(WorkoutLog).join(Workout).filter(
+                        WorkoutLog.exercise_id == selected_ex.exercise_id,
+                        Workout.user_id == user.user_id,
+                        WorkoutLog.weight.isnot(None)
+                    ).order_by(Workout.date).all()
+                    
+                    if logs:
+                        import plotly.graph_objects as go
+                        
+                        dates = [log.workout.date for log in logs]
+                        weights = [log.weight for log in logs]
+                        volumes = [log.sets * log.reps * log.weight for log in logs]
+                        
+                        fig = go.Figure()
+                        
+                        # График веса
+                        fig.add_trace(go.Scatter(
+                            x=dates,
+                            y=weights,
+                            mode='lines+markers',
+                            name='Вес (кг)',
+                            line=dict(color='#ff7f0e', width=3),
+                            marker=dict(size=8),
+                            yaxis='y1',
+                            hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Вес: %{y:.1f} кг<extra></extra>'
+                        ))
+                        
+                        # График объема
+                        fig.add_trace(go.Scatter(
+                            x=dates,
+                            y=volumes,
+                            mode='lines+markers',
+                            name='Объем (кг)',
+                            line=dict(color='#2ca02c', width=2, dash='dash'),
+                            marker=dict(size=6),
+                            yaxis='y2',
+                            hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Объем: %{y:.0f} кг<extra></extra>'
+                        ))
+                        
+                        fig.update_layout(
+                            title=f'Прогресс: {selected_ex_name}',
+                            xaxis_title='Дата',
+                            yaxis1=dict(title='Вес (кг)', titlefont=dict(color='#ff7f0e')),
+                            yaxis2=dict(title='Объем (кг)', titlefont=dict(color='#2ca02c'), overlaying='y1', side='right'),
+                            hovermode='x unified',
+                            height=500,
+                            template='plotly_white',
+                            legend=dict(x=0, y=1.1, orientation='h')
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Статистика
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Максимальный вес", f"{max(weights):.1f} кг")
+                        with col2:
+                            st.metric("Текущий вес", f"{weights[-1]:.1f} кг")
+                        with col3:
+                            st.metric("Всего тренировок", f"{len(logs)}")
+                    else:
+                        st.info(f"📭 Нет данных по упражнению '{selected_ex_name}'")
+            else:
+                st.warning("📭 Нет данных о тренировках. Добавь хотя бы одну тренировку.")
+        
+        # ====================================================================
+        # ВКЛАДКА 3: БЖУ ЗА ДЕНЬ
+        # ====================================================================
+        with tab3:
+            st.subheader("🥧 Соотношение БЖУ за день")
+            
+            # Выбор даты
+            macro_date = st.date_input(
+                "Выбери дату:",
+                value=date.today(),
+                max_value=date.today(),
+                key="macro_date"
+            )
+            
+            # Получаем записи за выбранную дату
+            day_logs = session.query(FoodLog).filter(
+                FoodLog.user_id == user.user_id,
+                FoodLog.date == macro_date
+            ).all()
+            
+            if day_logs:
+                totals = calculate_daily_totals(day_logs)
+                
+                # Проверяем, есть ли хоть какие-то макросы
+                if totals['protein'] > 0 or totals['fat'] > 0 or totals['carbs'] > 0:
+                    import plotly.graph_objects as go
+                    
+                    # Создаем круговую диаграмму
+                    labels = ['Белки', 'Жиры', 'Углеводы']
+                    values = [totals['protein'], totals['fat'], totals['carbs']]
+                    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+                    
+                    fig = go.Figure(data=[go.Pie(
+                        labels=labels,
+                        values=values,
+                        hole=.4,
+                        marker=dict(colors=colors),
+                        textinfo='label+percent',
+                        hovertemplate='<b>%{label}</b><br>%{value:.1f}г<br>%{percent}<extra></extra>'
+                    )])
+                    
+                    fig.update_layout(
+                        title=f'БЖУ за {macro_date.strftime("%d.%m.%Y")}',
+                        height=500,
+                        annotations=[dict(
+                            text=f'<b>{totals["calories"]:.0f}</b><br>ккал',
+                            x=0.5, y=0.5,
+                            font_size=20,
+                            showarrow=False
+                        )]
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Детальная таблица
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
+                    with col2:
+                        st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
+                    with col3:
+                        st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
+                else:
+                    st.info("📭 Нет данных о макронутриентах за этот день")
+            else:
+                st.info(f"📭 Нет записей о питании за {macro_date.strftime('%d.%m.%Y')}")
+        
+        # ====================================================================
+        # ВКЛАДКА 4: КАЛОРИИ ПО ДНЯМ
+        # ====================================================================
+        with tab4:
+            st.subheader("🔥 Динамика калорийности по дням")
+            
+            # Получаем все записи о питании
+            all_food_logs = session.query(FoodLog).filter(
+                FoodLog.user_id == user.user_id
+            ).all()
+            
+            if all_food_logs:
+                import plotly.graph_objects as go
+                from collections import defaultdict
+                
+                # Группируем по датам
+                calories_by_date = defaultdict(float)
+                for log in all_food_logs:
+                    macros = calculate_food_calories(log.food, log.weight_eaten)
+                    calories_by_date[log.date] += macros['calories']
+                
+                # Сортируем по датам
+                sorted_dates = sorted(calories_by_date.keys())
+                calories = [calories_by_date[d] for d in sorted_dates]
+                
+                # Создаем столбчатый график
+                fig = go.Figure()
+                
+                fig.add_trace(go.Bar(
+                    x=sorted_dates,
+                    y=calories,
+                    marker_color='#ef553b',
+                    hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Калории: %{y:.0f} ккал<extra></extra>'
+                ))
+                
+                fig.update_layout(
+                    title='Потребление калорий по дням',
+                    xaxis_title='Дата',
+                    yaxis_title='Калории (ккал)',
+                    hovermode='x unified',
+                    height=500,
+                    template='plotly_white'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Статистика
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    avg_calories = sum(calories) / len(calories)
+                    st.metric("Среднее за день", f"{avg_calories:.0f} ккал")
+                with col2:
+                    st.metric("Минимум", f"{min(calories):.0f} ккал")
+                with col3:
+                    st.metric("Максимум", f"{max(calories):.0f} ккал")
+            else:
+                st.warning("📭 Нет данных о питании. Добавь хотя бы один прием пищи.")
     st.header("Прогресс")
     
     user = session.query(User).first()
