@@ -3,6 +3,7 @@
 """
 import streamlit as st
 from datetime import date
+import pandas as pd
 from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement
 from calculations import calculate_food_calories, calculate_daily_totals, calculate_workout_volume, calculate_age, calculate_bmr, calculate_tdee
 from auth import register_user, authenticate_user
@@ -86,7 +87,7 @@ else:
             st.success(f"👤 {current_user.full_name}")
             st.caption(current_user.email)
             st.markdown("---")
-            page = st.radio("Навигация", ["🏠 Главная", "🍎 Питание", "🏋️ Тренировки", "📊 Прогресс"])
+            page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🍎 Питание", "🏋️ Тренировки", "📊 Прогресс"])
             st.markdown("---")
             if st.button("🚪 Выйти из аккаунта", use_container_width=True):
                 logout()
@@ -140,6 +141,110 @@ else:
                 c4.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
             else:
                 st.info("📭 Пока нет записей за сегодня.")
+
+                # =========================================================================
+        # СТРАНИЦА ПРОФИЛЯ (Личные данные и замеры)
+        # =========================================================================
+        elif page == "👤 Профиль":
+            st.header("👤 Настройки профиля и замеры")
+            
+            # ---------------------------------------------------------------------
+            # ФОРМА 1: ЛИЧНЫЕ ДАННЫЕ
+            # ---------------------------------------------------------------------
+            st.subheader("📝 Личные данные")
+            st.caption("Эти данные используются для расчета BMR, TDEE и возраста.")
+            
+            with st.form("profile_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Определяем индекс для пола (0 - male, 1 - female)
+                    gender_idx = 0 if (current_user.gender or "").lower() in ["male", "м", "мужской"] else 1
+                    gender = st.selectbox(
+                        "Пол", 
+                        ["male", "female"], 
+                        index=gender_idx,
+                        format_func=lambda x: "👨 Мужской" if x == "male" else "👩 Женский"
+                    )
+                    
+                    # Дата рождения (по умолчанию 01.01.2000, если не задана)
+                    default_bd = current_user.birth_date or date(2000, 1, 1)
+                    birth_date = st.date_input("Дата рождения", value=default_bd)
+                
+                with col2:
+                    # Рост (по умолчанию 170, если не задан)
+                    default_height = float(current_user.height or 170.0)
+                    height = st.number_input("Рост (см)", min_value=100.0, max_value=250.0, value=default_height, step=1.0)
+                
+                submit_profile = st.form_submit_button("💾 Сохранить личные данные", use_container_width=True)
+                
+                if submit_profile:
+                    current_user.gender = gender
+                    current_user.birth_date = birth_date
+                    current_user.height = height
+                    session.commit()
+                    st.success("✅ Личные данные успешно обновлены!")
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # ---------------------------------------------------------------------
+            # ФОРМА 2: ДОБАВЛЕНИЕ ЗАМЕРА ВЕСА
+            # ---------------------------------------------------------------------
+            st.subheader("⚖️ Добавить новый замер")
+            
+            with st.form("measurement_form"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    meas_date = st.date_input("Дата замера", value=date.today())
+                with col2:
+                    weight = st.number_input("Вес (кг)", min_value=30.0, max_value=300.0, step=0.1)
+                with col3:
+                    fat_percent = st.number_input("Процент жира (%)", min_value=0.0, max_value=60.0, step=0.1, value=0.0)
+                
+                muscle_mass = st.number_input("Мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
+                
+                submit_meas = st.form_submit_button("➕ Добавить замер", type="primary", use_container_width=True)
+                
+                if submit_meas:
+                    new_meas = UserMeasurement(
+                        user_id=current_user.user_id,
+                        date=meas_date,
+                        weight=weight,
+                        fat_percent=fat_percent if fat_percent > 0 else None,
+                        muscle_mass=muscle_mass if muscle_mass > 0 else None
+                    )
+                    session.add(new_meas)
+                    session.commit()
+                    st.success("✅ Замер веса успешно добавлен! Теперь на Главной странице обновятся расчеты.")
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # ---------------------------------------------------------------------
+            # ИСТОРИЯ ЗАМЕРОВ
+            # ---------------------------------------------------------------------
+            st.subheader("📜 История ваших замеров")
+            
+            measurements = session.query(UserMeasurement).filter(
+                UserMeasurement.user_id == current_user.user_id
+            ).order_by(UserMeasurement.date.desc()).all()
+            
+            if measurements:
+                # Создаем красивую таблицу через pandas (Streamlit это любит)
+                import pandas as pd
+                data = []
+                for m in measurements:
+                    data.append({
+                        "Дата": m.date.strftime("%d.%m.%Y"),
+                        "Вес (кг)": m.weight,
+                        "Жир (%)": m.fat_percent or "-",
+                        "Мышцы (кг)": m.muscle_mass or "-"
+                    })
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("📭 Замеров пока нет. Добавьте первый замер выше!")
+
         # ============================================================================
         # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
         # ============================================================================
