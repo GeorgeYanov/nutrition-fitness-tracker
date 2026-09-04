@@ -4,7 +4,10 @@
 import streamlit as st
 from datetime import date, datetime
 from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement
-from calculations import calculate_food_calories, calculate_daily_totals, calculate_workout_volume
+from calculations import (
+    calculate_food_calories, calculate_daily_totals, calculate_workout_volume,
+    calculate_age, calculate_bmr, calculate_tdee
+)
 
 # Настройка страницы
 st.set_page_config(
@@ -43,18 +46,76 @@ if page == "🏠 Главная":
         
         latest_measurement = user.measurements[-1] if user.measurements else None
         
+        # =========================================================================
+        # БЛОК РАСЧЕТА BMR и TDEE
+        # =========================================================================
+        st.markdown("### 🧮 Твои метаболические показатели")
+        
+        if latest_measurement and latest_measurement.weight:
+            age = calculate_age(user.birth_date)
+            bmr = calculate_bmr(latest_measurement.weight, user.height, age, user.gender)
+            
+            # Словарь уровней активности
+            activity_levels = {
+                "🛋️ Сидячий образ жизни (минимум упражнений)": 1.2,
+                "🚶 Легкая активность (1-3 тренировки в неделю)": 1.375,
+                "🏃 Умеренная активность (3-5 тренировок в неделю)": 1.55,
+                "🏋️ Высокая активность (6-7 тренировок в неделю)": 1.725,
+                "🔥 Экстремальная активность (физ. работа + тренировки)": 1.9
+            }
+            
+            # Выбор активности (по умолчанию умеренная)
+            selected_activity = st.selectbox(
+                "Выбери свой уровень активности:",
+                options=list(activity_levels.keys()),
+                index=2, # По умолчанию "Умеренная активность"
+                help="Это нужно для точного расчета суточной нормы калорий (TDEE)"
+            )
+            
+            multiplier = activity_levels[selected_activity]
+            tdee = calculate_tdee(bmr, multiplier)
+            
+            # Визуализация метрик
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("🎂 Возраст", f"{age} лет")
+            with col2:
+                st.metric("⚖️ Текущий вес", f"{latest_measurement.weight} кг")
+            with col3:
+                st.metric("🔥 BMR (покой)", f"{bmr:.0f} ккал", help="Калории, которые тело тратит в полном покое")
+            with col4:
+                st.metric("🎯 TDEE (норма)", f"{tdee:.0f} ккал", help="Сколько нужно есть, чтобы вес стоял на месте")
+            
+            # Рекомендация по целям
+            st.info(f"💡 **Рекомендация:** Для плавного похудения ешь около **{int(tdee - 300)} ккал**. Для набора массы — около **{int(tdee + 300)} ккал**.")
+            
+        else:
+            st.warning("⚠️ Для расчета BMR/TDEE необходимо добавить замер веса. Сделай это ниже или на вкладке 'Прогресс'.")
+        
+        st.markdown("---")
+        
+        # =========================================================================
+        # БЛОК ПОСЛЕДНИХ ЗАМЕРОВ
+        # =========================================================================
         if latest_measurement:
-            st.subheader(" Последние замеры")
+            st.subheader("📊 Последние замеры тела")
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.metric("Вес", f"{latest_measurement.weight} кг")
             with col2:
-                st.metric("Процент жира", f"{latest_measurement.fat_percent}%" if latest_measurement.fat_percent else "N/A")
+                fat_str = f"{latest_measurement.fat_percent}%" if latest_measurement.fat_percent else "N/A"
+                st.metric("Процент жира", fat_str)
             with col3:
-                st.metric("Мышечная масса", f"{latest_measurement.muscle_mass} кг" if latest_measurement.muscle_mass else "N/A")
+                muscle_str = f"{latest_measurement.muscle_mass} кг" if latest_measurement.muscle_mass else "N/A"
+                st.metric("Мышечная масса", muscle_str)
         
-        st.subheader("📈 Статистика за сегодня")
+        st.markdown("---")
+        
+        # =========================================================================
+        # БЛОК СТАТИСТИКИ ЗА СЕГОДНЯ
+        # =========================================================================
+        st.subheader("📈 Статистика питания за сегодня")
         
         today = date.today()
         today_food_logs = session.query(FoodLog).filter(
@@ -65,21 +126,25 @@ if page == "🏠 Главная":
         if today_food_logs:
             totals = calculate_daily_totals(today_food_logs)
             
-            col1, col2, col3, col4 = st.columns(4)
+            # Если рассчитан TDEE, показываем прогресс-бар
+            if 'tdee' in locals():
+                progress = min(totals['calories'] / tdee, 1.5) # Ограничим 150% для красоты
+                st.progress(progress, text=f"Съедено {totals['calories']:.0f} из {tdee:.0f} ккал ({(totals['calories']/tdee)*100:.0f}%)")
             
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Калории", f"{totals['calories']:.0f} ккал")
+                st.metric("🔥 Калории", f"{totals['calories']:.0f} ккал")
             with col2:
-                st.metric("Белки", f"{totals['protein']:.1f} г")
+                st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
             with col3:
-                st.metric("Жиры", f"{totals['fat']:.1f} г")
+                st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
             with col4:
-                st.metric("Углеводы", f"{totals['carbs']:.1f} г")
+                st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
         else:
-            st.info("Пока нет записей о питании за сегодня")
+            st.info("📭 Пока нет записей о питании за сегодня. Самое время добавить завтрак!")
     
     else:
-        st.warning("Пользователь не найден. Запусти add_test_data.py для создания тестового пользователя.")
+        st.warning("Пользователь не найден. Запусти `add_test_data.py` для создания тестового пользователя.")
 
 # ============================================================================
 # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
