@@ -94,6 +94,12 @@ class UserGoal(Base):
     meals_per_day = Column(Integer)
     workouts_per_week = Column(Integer)
     
+    # НОВЫЕ ПОЛЯ ДЛЯ МАКРОНУТРИЕНТОВ
+    target_calories = Column(Float)
+    target_protein = Column(Float)
+    target_fat = Column(Float)
+    target_carbs = Column(Float)
+    
     user = relationship('User', back_populates='goals')
 
 

@@ -4,7 +4,7 @@
 import streamlit as st
 from datetime import date
 import pandas as pd
-from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement
+from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal
 from calculations import calculate_food_calories, calculate_daily_totals, calculate_workout_volume, calculate_age, calculate_bmr, calculate_tdee
 from auth import register_user, authenticate_user
 
@@ -126,23 +126,42 @@ else:
             
             st.markdown("---")
             st.subheader("📈 Статистика питания за сегодня")
+            
             today = date.today()
-            today_logs = session.query(FoodLog).filter(FoodLog.user_id == current_user.user_id, FoodLog.date == today).all()
+            today_logs = session.query(FoodLog).filter(
+                FoodLog.user_id == current_user.user_id, 
+                FoodLog.date == today
+            ).all()
             
             if today_logs:
                 totals = calculate_daily_totals(today_logs)
-                if 'tdee' in locals():
-                    st.progress(min(totals['calories'] / tdee, 1.5), text=f"Съедено {totals['calories']:.0f} из {tdee:.0f} ккал")
+                goals = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
                 
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("🔥 Калории", f"{totals['calories']:.0f}")
-                c2.metric("🥩 Белки", f"{totals['protein']:.1f} г")
-                c3.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
-                c4.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
+                st.markdown("#### 📊 Прогресс за сегодня")
+                
+                # Вспомогательная функция для красивого прогресс-бара
+                def render_progress(current, target, label, unit, color="#1f77b4"):
+                    if target and target > 0:
+                        pct = min(current / target, 1.5) # Ограничиваем 150%, чтобы бар не ломался при переедании
+                        st.progress(pct, text=f"**{label}**: {current:.1f} / {target:.1f} {unit} ({(current/target)*100:.0f}%)")
+                    else:
+                        st.write(f"**{label}**: {current:.1f} {unit} *(Цель не задана в Профиле)*")
+                
+                # Получаем цели или дефолтные значения
+                t_cal = goals.target_calories if goals else None
+                t_prot = goals.target_protein if goals else None
+                t_fat = goals.target_fat if goals else None
+                t_carb = goals.target_carbs if goals else None
+                
+                render_progress(totals['calories'], t_cal, "🔥 Калории", "ккал", "#ef553b")
+                render_progress(totals['protein'], t_prot, "🥩 Белки", "г", "#1f77b4")
+                render_progress(totals['fat'], t_fat, "🥑 Жиры", "г", "#ff7f0e")
+                render_progress(totals['carbs'], t_carb, "🍞 Углеводы", "г", "#2ca02c")
+                
             else:
-                st.info("📭 Пока нет записей за сегодня.")
+                st.info("📭 Пока нет записей о питании за сегодня. Самое время добавить завтрак!")
 
-                # =========================================================================
+        # =========================================================================
         # СТРАНИЦА ПРОФИЛЯ (Личные данные и замеры)
         # =========================================================================
         elif page == "👤 Профиль":
@@ -244,6 +263,57 @@ else:
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.info("📭 Замеров пока нет. Добавьте первый замер выше!")
+            st.markdown("---")
+            
+            # ---------------------------------------------------------------------
+            # ФОРМА 3: ЦЕЛИ ПО МАКРОНУТРИЕНТАМ
+            # ---------------------------------------------------------------------
+            st.subheader("🎯 Цели по макронутриентам")
+            st.caption("Эти цели будут использоваться для отображения прогресс-баров на Главной странице.")
+            
+            # Получаем текущие цели пользователя
+            current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+            
+            with st.form("macro_goals_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Значения по умолчанию, если целей еще нет
+                    def_cal = int(current_goal.target_calories) if current_goal and current_goal.target_calories else 2000
+                    def_prot = int(current_goal.target_protein) if current_goal and current_goal.target_protein else 150
+                    
+                    target_cal = st.number_input("Цель по калориям (ккал)", min_value=500, max_value=10000, value=def_cal)
+                    target_prot = st.number_input("Цель по белкам (г)", min_value=0, max_value=1000, value=def_prot)
+                
+                with col2:
+                    def_fat = int(current_goal.target_fat) if current_goal and current_goal.target_fat else 70
+                    def_carb = int(current_goal.target_carbs) if current_goal and current_goal.target_carbs else 250
+                    
+                    target_fat = st.number_input("Цель по жирам (г)", min_value=0, max_value=1000, value=def_fat)
+                    target_carb = st.number_input("Цель по углеводам (г)", min_value=0, max_value=1000, value=def_carb)
+                
+                submit_goals = st.form_submit_button("💾 Сохранить цели", type="primary", use_container_width=True)
+                
+                if submit_goals:
+                    if current_goal:
+                        # Обновляем существующие цели
+                        current_goal.target_calories = target_cal
+                        current_goal.target_protein = target_prot
+                        current_goal.target_fat = target_fat
+                        current_goal.target_carbs = target_carb
+                    else:
+                        # Создаем новые цели
+                        new_goal = UserGoal(
+                            user_id=current_user.user_id,
+                            target_calories=target_cal,
+                            target_protein=target_prot,
+                            target_fat=target_fat,
+                            target_carbs=target_carb
+                        )
+                        session.add(new_goal)
+                    
+                    session.commit()
+                    st.success("✅ Цели по макронутриентам успешно сохранены!")
+                    st.rerun()
 
         # ============================================================================
         # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
