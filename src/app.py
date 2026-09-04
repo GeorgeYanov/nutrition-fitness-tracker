@@ -4,7 +4,7 @@
 import streamlit as st
 from datetime import date
 import pandas as pd
-from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal
+from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult
 from calculations import (
        calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
        calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals
@@ -90,7 +90,7 @@ else:
             st.success(f"👤 {current_user.full_name}")
             st.caption(current_user.email)
             st.markdown("---")
-            page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🥗 Моя еда", "🍎 Питание", "🏋️ Тренировки", "📊 Прогресс"])
+            page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🥗 Моя еда", "🍎 Питание", "🏋️ Тренировки", "🩺 Анализы", "📊 Прогресс"])
             st.markdown("---")
             if st.button("🚪 Выйти из аккаунта", width='stretch'):
                 logout()
@@ -734,7 +734,177 @@ else:
                                 st.rerun()
                 else:
                     st.info(f"📭 Тренировок за {selected_date.strftime('%d.%m.%Y')} не найдено")
+        # =========================================================================
+        # СТРАНИЦА МЕДИЦИНСКИХ АНАЛИЗОВ
+        # =========================================================================
+        elif page == "🩺 Анализы":
+            st.header("🩺 Дневник медицинских анализов")
+            st.info("💡 Заполняйте только те показатели, которые вы сдали. Приложение запомнит единицы измерения и построит график динамики.")
+            
+            # СЛОВАРЬ ПОКАЗАТЕЛЕЙ (Можешь легко добавить сюда остальные из твоего списка)
+            MEDICAL_INDICATORS = {
+                "🩸 Общий анализ крови": {
+                    "Гемоглобин": "г/л",
+                    "Эритроциты": "10^12/л",
+                    "Лейкоциты": "10^9/л",
+                    "Тромбоциты": "10^9/л",
+                    "Гематокрит": "%",
+                    "MCV (средний объем эритроцита)": "фл",
+                    "MCH (среднее содержание Hb)": "пг"
+                },
+                "🧪 Биохимический анализ крови": {
+                    "Общий белок": "г/л",
+                    "Альбумин": "г/л",
+                    "Глюкоза": "ммоль/л",
+                    "Холестерин общий": "ммоль/л",
+                    "Холестерин ЛПВП": "ммоль/л",
+                    "Холестерин ЛПНП": "ммоль/л",
+                    "Триглицериды": "ммоль/л",
+                    "АЛТ": "Ед/л",
+                    "АСТ": "Ед/л",
+                    "Билирубин общий": "мкмоль/л",
+                    "Креатинин": "мкмоль/л",
+                    "Мочевая кислота": "мкмоль/л",
+                    "Ферритин": "мкг/л",
+                    "Витамин D (25-OH)": "нг/мл",
+                    "ТТГ": "мкМЕ/мл"
+                },
+                "💧 Общий анализ мочи": {
+                    "Белок": "г/л",
+                    "Глюкоза": "ммоль/л",
+                    "Лейкоциты": "в п/зр",
+                    "Эритроциты": "в п/зр",
+                    "Удельный вес": ""
+                }
+            }
+            
+            tab_input, tab_graph = st.tabs(["➕ Внести результаты", "📈 График динамики"])
+            
+            # ---------------------------------------------------------------------
+            # ВКЛАДКА 1: ВВОД ДАННЫХ
+            # ---------------------------------------------------------------------
+            with tab_input:
+                test_date = st.date_input("📅 Дата сдачи анализов:", value=date.today())
+                
+                with st.form("medical_form"):
+                    for category, indicators in MEDICAL_INDICATORS.items():
+                        with st.expander(category):
+                            for name, unit in indicators.items():
+                                unit_str = f" ({unit})" if unit else ""
+                                
+                                # ИСПРАВЛЕНИЕ: добавили {category} в ключ для уникальности
+                                st.number_input(
+                                    f"{name}{unit_str}", 
+                                    min_value=0.0, 
+                                    value=0.0, 
+                                    step=0.1, 
+                                    key=f"med_{category}_{name}_{test_date}"
+                                )
+                    
+                    submit_med = st.form_submit_button("💾 Сохранить результаты анализов", type="primary", use_container_width=True)
+                    
+                    if submit_med:
+                        saved_count = 0
+                        for category, indicators in MEDICAL_INDICATORS.items():
+                            for name, unit in indicators.items():
+                                # ИСПРАВЛЕНИЕ: читаем по новому уникальному ключу
+                                val = st.session_state[f"med_{category}_{name}_{test_date}"]
+                                if val > 0.0:
+                                    # Проверяем, нет ли уже такой записи на эту дату (чтобы не дублировать при повторном нажатии)
+                                    existing = session.query(MedicalResult).filter(
+                                        MedicalResult.user_id == current_user.user_id,
+                                        MedicalResult.test_date == test_date,
+                                        MedicalResult.test_name == name
+                                    ).first()
+                                    
+                                    if existing:
+                                        existing.value = val # Обновляем, если уже есть
+                                    else:
+                                        new_result = MedicalResult(
+                                            user_id=current_user.user_id,
+                                            test_date=test_date,
+                                            test_category=category,
+                                            test_name=name,
+                                            value=val,
+                                            unit=unit
+                                        )
+                                        session.add(new_result)
+                                    saved_count += 1
+                        
+                        session.commit()
+                        st.success(f"✅ Успешно сохранено {saved_count} показателей за {test_date.strftime('%d.%m.%Y')}!")
+                        st.rerun()
 
+            # ---------------------------------------------------------------------
+            # ВКЛАДКА 2: ГРАФИК ДИНАМИКИ
+            # ---------------------------------------------------------------------
+            with tab_graph:
+                st.subheader("📈 Динамика конкретного показателя")
+                
+                # Получаем список всех уникальных показателей, которые когда-либо сдавал этот пользователь
+                user_results = session.query(MedicalResult).filter(
+                    MedicalResult.user_id == current_user.user_id
+                ).all()
+                
+                if user_results:
+                    # Создаем уникальный отсортированный список названий
+                    unique_tests = sorted(list(set([r.test_name for r in user_results])))
+                    
+                    selected_test = st.selectbox("Выберите показатель для графика:", unique_tests)
+                    
+                    if selected_test:
+                        # Находим единицу измерения для этого показателя
+                        unit = next((r.unit for r in user_results if r.test_name == selected_test), "")
+                        unit_str = f" ({unit})" if unit else ""
+                        
+                        # Получаем историю по этому показателю, отсортированную по дате
+                        history = session.query(MedicalResult).filter(
+                            MedicalResult.user_id == current_user.user_id,
+                            MedicalResult.test_name == selected_test
+                        ).order_by(MedicalResult.test_date).all()
+                        
+                        if len(history) >= 1:
+                            import plotly.graph_objects as go
+                            
+                            dates = [h.test_date for h in history]
+                            values = [h.value for h in history]
+                            
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=dates,
+                                y=values,
+                                mode='lines+markers',
+                                name=selected_test,
+                                line=dict(color='#9b59b6', width=3),
+                                marker=dict(size=8),
+                                hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Значение: %{y:.2f}' + unit_str + '<extra></extra>'
+                            ))
+                            
+                            fig.update_layout(
+                                title=f'Динамика: {selected_test}',
+                                xaxis_title='Дата',
+                                yaxis_title=f'Значение{unit_str}',
+                                hovermode='x unified',
+                                height=500,
+                                template='plotly_white'
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Таблица с историей
+                            import pandas as pd
+                            df_hist = pd.DataFrame([{
+                                "Дата": h.test_date.strftime("%d.%m.%Y"),
+                                "Значение": h.value,
+                                "Ед. изм.": h.unit or "-"
+                            } for h in history])
+                            
+                            st.markdown("##### 📜 История значений:")
+                            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Недостаточно данных для построения графика.")
+                else:
+                    st.info("📭 Вы еще не внесли ни одного результата анализов. Перейдите во вкладку 'Внести результаты'.")
         # ============================================================================
         # СТРАНИЦА ПРОГРЕССА
         # ============================================================================
