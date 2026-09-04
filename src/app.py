@@ -5,7 +5,10 @@ import streamlit as st
 from datetime import date
 import pandas as pd
 from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal
-from calculations import calculate_food_calories, calculate_daily_totals, calculate_workout_volume, calculate_age, calculate_bmr, calculate_tdee
+from calculations import (
+       calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
+       calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals
+   )
 from auth import register_user, authenticate_user
 
 # Настройка страницы
@@ -36,7 +39,7 @@ if st.session_state.user_id is None:
         with st.form("login_form"):
             email = st.text_input("Email")
             password = st.text_input("Пароль", type="password")
-            submit = st.form_submit_button("Войти", use_container_width=True)
+            submit = st.form_submit_button("Войти", width='stretch')
             
             if submit:
                 if not email or not password:
@@ -57,7 +60,7 @@ if st.session_state.user_id is None:
             reg_email = st.text_input("Email")
             reg_name = st.text_input("Имя и Фамилия")
             reg_password = st.text_input("Пароль", type="password")
-            reg_submit = st.form_submit_button("Зарегистрироваться", use_container_width=True)
+            reg_submit = st.form_submit_button("Зарегистрироваться", width='stretch')
             
             if reg_submit:
                 if not reg_email or not reg_name or not reg_password:
@@ -89,7 +92,7 @@ else:
             st.markdown("---")
             page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🍎 Питание", "🏋️ Тренировки", "📊 Прогресс"])
             st.markdown("---")
-            if st.button("🚪 Выйти из аккаунта", use_container_width=True):
+            if st.button("🚪 Выйти из аккаунта", width='stretch'):
                 logout()
 
         # =========================================================================
@@ -194,7 +197,7 @@ else:
                     default_height = float(current_user.height or 170.0)
                     height = st.number_input("Рост (см)", min_value=100.0, max_value=250.0, value=default_height, step=1.0)
                 
-                submit_profile = st.form_submit_button("💾 Сохранить личные данные", use_container_width=True)
+                submit_profile = st.form_submit_button("💾 Сохранить личные данные", width='stretch')
                 
                 if submit_profile:
                     current_user.gender = gender
@@ -222,7 +225,7 @@ else:
                 
                 muscle_mass = st.number_input("Мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
                 
-                submit_meas = st.form_submit_button("➕ Добавить замер", type="primary", use_container_width=True)
+                submit_meas = st.form_submit_button("➕ Добавить замер", type="primary", width='stretch')
                 
                 if submit_meas:
                     new_meas = UserMeasurement(
@@ -256,64 +259,96 @@ else:
                     data.append({
                         "Дата": m.date.strftime("%d.%m.%Y"),
                         "Вес (кг)": m.weight,
-                        "Жир (%)": m.fat_percent or "-",
-                        "Мышцы (кг)": m.muscle_mass or "-"
+                        # Явно преобразуем в строку или ставим прочерк, чтобы не было смешения типов float и str
+                        "Жир (%)": f"{m.fat_percent}" if m.fat_percent is not None else "-",
+                        "Мышцы (кг)": f"{m.muscle_mass}" if m.muscle_mass is not None else "-"
                     })
                 df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width='stretch', hide_index=True)
             else:
                 st.info("📭 Замеров пока нет. Добавьте первый замер выше!")
             st.markdown("---")
             
             # ---------------------------------------------------------------------
-            # ФОРМА 3: ЦЕЛИ ПО МАКРОНУТРИЕНТАМ
+            # ФОРМА 3: УМНЫЕ ЦЕЛИ (Расчет макросов на основе желаемого веса)
             # ---------------------------------------------------------------------
-            st.subheader("🎯 Цели по макронутриентам")
-            st.caption("Эти цели будут использоваться для отображения прогресс-баров на Главной странице.")
+            st.subheader("🎯 Целевые показатели")
+            st.caption("Укажи, к какому весу ты стремишься, и приложение само рассчитает идеальные КБЖУ.")
             
-            # Получаем текущие цели пользователя
-            current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+            # Проверяем, есть ли базовые данные для расчета
+            latest_meas = session.query(UserMeasurement).filter(
+                UserMeasurement.user_id == current_user.user_id
+            ).order_by(UserMeasurement.date.desc()).first()
             
-            with st.form("macro_goals_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    # Значения по умолчанию, если целей еще нет
-                    def_cal = int(current_goal.target_calories) if current_goal and current_goal.target_calories else 2000
-                    def_prot = int(current_goal.target_protein) if current_goal and current_goal.target_protein else 150
+            if not latest_meas or not latest_meas.weight or not current_user.height or not current_user.birth_date:
+                st.warning("⚠️ Сначала заполни рост, дату рождения и добавь хотя бы один замер веса в разделе выше, чтобы мы могли рассчитать цели!")
+            else:
+                current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                
+                with st.form("smart_goals_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        def_target_w = current_goal.target_weight if current_goal and current_goal.target_weight else latest_meas.weight
+                        target_weight = st.number_input("Желаемый вес (кг)", min_value=30.0, max_value=300.0, value=float(def_target_w), step=0.5)
+                        
+                        def_target_m = current_goal.target_muscle_mass if current_goal and current_goal.target_muscle_mass else (latest_meas.muscle_mass or 0.0)
+                        target_muscle = st.number_input("Желаемая мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, value=float(def_target_m), step=0.5)
                     
-                    target_cal = st.number_input("Цель по калориям (ккал)", min_value=500, max_value=10000, value=def_cal)
-                    target_prot = st.number_input("Цель по белкам (г)", min_value=0, max_value=1000, value=def_prot)
-                
-                with col2:
-                    def_fat = int(current_goal.target_fat) if current_goal and current_goal.target_fat else 70
-                    def_carb = int(current_goal.target_carbs) if current_goal and current_goal.target_carbs else 250
+                    with col2:
+                        def_target_f = current_goal.target_fat_percent if current_goal and current_goal.target_fat_percent else (latest_meas.fat_percent or 15.0)
+                        target_fat_pct = st.number_input("Желаемый % жира", min_value=5.0, max_value=50.0, value=float(def_target_f), step=0.5)
+                        
+                        activity_levels = {
+                            "🛋️ Сидячий (1.2)": 1.2,
+                            "🚶 Легкая активность (1.375)": 1.375,
+                            "🏃 Умеренная активность (1.55)": 1.55,
+                            "🏋️ Высокая активность (1.725)": 1.725,
+                        }
+                        # Дефолтное значение активности
+                        default_act_idx = 2 
+                        selected_activity = st.selectbox("Твой уровень активности:", list(activity_levels.keys()), index=default_act_idx)
+                        activity_mult = activity_levels[selected_activity]
                     
-                    target_fat = st.number_input("Цель по жирам (г)", min_value=0, max_value=1000, value=def_fat)
-                    target_carb = st.number_input("Цель по углеводам (г)", min_value=0, max_value=1000, value=def_carb)
-                
-                submit_goals = st.form_submit_button("💾 Сохранить цели", type="primary", use_container_width=True)
-                
-                if submit_goals:
-                    if current_goal:
-                        # Обновляем существующие цели
-                        current_goal.target_calories = target_cal
-                        current_goal.target_protein = target_prot
-                        current_goal.target_fat = target_fat
-                        current_goal.target_carbs = target_carb
-                    else:
-                        # Создаем новые цели
-                        new_goal = UserGoal(
-                            user_id=current_user.user_id,
-                            target_calories=target_cal,
-                            target_protein=target_prot,
-                            target_fat=target_fat,
-                            target_carbs=target_carb
+                    submit_goals = st.form_submit_button("🧮 Рассчитать и сохранить цели", type="primary", width='stretch')
+                    
+                    if submit_goals:
+                        # Вызываем нашу новую умную функцию!
+                        age = calculate_age(current_user.birth_date)
+                        macros = calculate_macro_goals(
+                            current_weight=latest_meas.weight,
+                            target_weight=target_weight,
+                            height=current_user.height,
+                            age=age,
+                            gender=current_user.gender or 'male',
+                            activity_multiplier=activity_mult
                         )
-                        session.add(new_goal)
-                    
-                    session.commit()
-                    st.success("✅ Цели по макронутриентам успешно сохранены!")
-                    st.rerun()
+                        
+                        if current_goal:
+                            current_goal.target_weight = target_weight
+                            current_goal.target_muscle_mass = target_muscle if target_muscle > 0 else None
+                            current_goal.target_fat_percent = target_fat_pct
+                            current_goal.target_calories = macros['calories']
+                            current_goal.target_protein = macros['protein']
+                            current_goal.target_fat = macros['fat']
+                            current_goal.target_carbs = macros['carbs']
+                        else:
+                            new_goal = UserGoal(
+                                user_id=current_user.user_id,
+                                target_weight=target_weight,
+                                target_muscle_mass=target_muscle if target_muscle > 0 else None,
+                                target_fat_percent=target_fat_pct,
+                                target_calories=macros['calories'],
+                                target_protein=macros['protein'],
+                                target_fat=macros['fat'],
+                                target_carbs=macros['carbs']
+                            )
+                            session.add(new_goal)
+                        
+                        session.commit()
+                        
+                        st.success("✅ Цели рассчитаны и сохранены!")
+                        st.info(f"📊 **Твоя новая норма:** {macros['calories']} ккал | Б: {macros['protein']}г | Ж: {macros['fat']}г | У: {macros['carbs']}г")
+                        st.rerun()
 
         # ============================================================================
         # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)

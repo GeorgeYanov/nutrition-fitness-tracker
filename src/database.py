@@ -91,10 +91,10 @@ class UserGoal(Base):
     user_id = Column(Integer, ForeignKey('users.user_id'), primary_key=True)
     target_weight = Column(Float)
     target_fat_percent = Column(Float)
+    target_muscle_mass = Column(Float) # <-- ДОБАВЛЕНО
     meals_per_day = Column(Integer)
     workouts_per_week = Column(Integer)
     
-    # НОВЫЕ ПОЛЯ ДЛЯ МАКРОНУТРИЕНТОВ
     target_calories = Column(Float)
     target_protein = Column(Float)
     target_fat = Column(Float)
