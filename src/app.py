@@ -90,7 +90,7 @@ else:
             st.success(f"👤 {current_user.full_name}")
             st.caption(current_user.email)
             st.markdown("---")
-            page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🍎 Питание", "🏋️ Тренировки", "📊 Прогресс"])
+            page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🥗 Моя еда", "🍎 Питание", "🏋️ Тренировки", "📊 Прогресс"])
             st.markdown("---")
             if st.button("🚪 Выйти из аккаунта", width='stretch'):
                 logout()
@@ -349,7 +349,64 @@ else:
                         st.success("✅ Цели рассчитаны и сохранены!")
                         st.info(f"📊 **Твоя новая норма:** {macros['calories']} ккал | Б: {macros['protein']}г | Ж: {macros['fat']}г | У: {macros['carbs']}г")
                         st.rerun()
-
+                # =========================================================================
+        # СТРАНИЦА "МОЯ ЕДА" (Управление справочником)
+        # =========================================================================
+        elif page == "🥗 Моя еда":
+            st.header("🥗 Справочник моей еды")
+            st.info("💡 Здесь отображаются все продукты, которые ты добавил вручную через вкладку 'Питание'. Они сохраняются навсегда и доступны для быстрого выбора.")
+            
+            # Получаем все продукты из базы
+            foods = session.query(Food).order_by(Food.name).all()
+            
+            if foods:
+                import pandas as pd
+                
+                # Формируем данные для красивой таблицы
+                data = []
+                for f in foods:
+                    data.append({
+                        "Название": f.name,
+                        "Ккал": f.calories_per_100g,
+                        "Белки": f.protein_per_100g,
+                        "Жиры": f.fat_per_100g,
+                        "Углеводы": f.carbs_per_100g,
+                        "ID": f.food_id # Скрытый ID для удаления
+                    })
+                
+                df = pd.DataFrame(data)
+                
+                # Показываем таблицу (скрываем колонку ID)
+                st.dataframe(
+                    df[["Название", "Ккал", "Белки", "Жиры", "Углеводы"]], 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
+                st.markdown("---")
+                st.subheader("🗑️ Управление справочником")
+                
+                with st.form("delete_food_form"):
+                    st.caption("Выбери продукт, который был добавлен с ошибкой, чтобы удалить его из справочника.")
+                    food_names = [f.name for f in foods]
+                    food_to_delete = st.selectbox("Продукт для удаления:", food_names)
+                    
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        confirm_delete = st.form_submit_button("Удалить", type="primary")
+                    
+                    if confirm_delete:
+                        # Находим продукт и удаляем
+                        food_obj = session.query(Food).filter(Food.name == food_to_delete).first()
+                        if food_obj:
+                            session.delete(food_obj)
+                            session.commit()
+                            st.success(f"✅ Продукт '{food_to_delete}' успешно удален из справочника!")
+                            st.rerun() # Перезагружаем страницу, чтобы обновить список
+            
+            else:
+                st.info("📭 Твой личный справочник пока пуст. Добавь свой первый кастомный продукт во вкладке '🍎 Питание' -> '🔍 Другое (добавить свой)'!") 
+                        
         # ============================================================================
         # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
         # ============================================================================
