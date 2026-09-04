@@ -311,7 +311,7 @@ elif page == "🏋️ Тренировки":
         with col_c:
             ex_weight = st.number_input("Вес (кг):", min_value=0.0, value=20.0, step=2.5, key="ex_weight")
         
-        if st.button("➕ Добавить упражнение в тренировку", use_container_width=True):
+        if st.button("➕ Добавить упражнение в тренировку", width="stretch"):
             if ex_choice == "🔍 Другое (добавить свое)":
                 if not new_ex_name:
                     st.error("❌ Введите название упражнения!")
@@ -356,7 +356,7 @@ elif page == "🏋️ Тренировки":
                         st.rerun()
             
             st.markdown("")
-            if st.button("💾 Сохранить тренировку целиком", type="primary", use_container_width=True):
+            if st.button("💾 Сохранить тренировку целиком", type="primary", width="stretch"):
                 new_workout = Workout(
                     user_id=user.user_id,
                     date=w_date,
@@ -412,7 +412,6 @@ elif page == "🏋️ Тренировки":
 # ============================================================================
 # СТРАНИЦА ПРОГРЕССА
 # ============================================================================
-
 elif page == "📊 Прогресс":
     st.header("📊 Прогресс и аналитика")
     
@@ -424,13 +423,15 @@ elif page == "📊 Прогресс":
         tab1, tab2, tab3, tab4 = st.tabs([
             "📈 Вес тела", 
             "💪 Силовые показатели", 
-            "🥧 БЖУ за день",
-            "🔥 Калории по дням"
+            " БЖУ за день",
+            " Калории по дням"
         ])
         
-        # Вкладка 1: Вес тела
+        # ====================================================================
+        # ВКЛАДКА 1: ГРАФИК ВЕСА ТЕЛА
+        # ====================================================================
         with tab1:
-            st.subheader("📈 Динамика веса тела")
+            st.subheader(" Динамика веса тела")
             
             measurements = session.query(UserMeasurement).filter(
                 UserMeasurement.user_id == user.user_id,
@@ -464,7 +465,7 @@ elif page == "📊 Прогресс":
                     template='plotly_white'
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -477,7 +478,7 @@ elif page == "📊 Прогресс":
                 if len(weights) > 1:
                     change = weights[-1] - weights[0]
                     if change > 0:
-                        st.info(f" Изменение за весь период: **+{change:.1f} кг**")
+                        st.info(f"📈 Изменение за весь период: **+{change:.1f} кг**")
                     elif change < 0:
                         st.success(f"📉 Изменение за весь период: **{change:.1f} кг**")
                     else:
@@ -485,9 +486,11 @@ elif page == "📊 Прогресс":
             else:
                 st.warning("📭 Нет данных о замерах веса. Добавь замеры на главной странице.")
         
-        # Вкладка 2: Силовые показатели
+        # ====================================================================
+        # ВКЛАДКА 2: СИЛОВЫЕ ПОКАЗАТЕЛИ
+        # ====================================================================
         with tab2:
-            st.subheader("💪 Прогресс в упражнениях")
+            st.subheader(" Прогресс в упражнениях")
             
             exercises_with_logs = session.query(Exercise).join(WorkoutLog).all()
             
@@ -541,15 +544,21 @@ elif page == "📊 Прогресс":
                         fig.update_layout(
                             title=f'Прогресс: {selected_ex_name}',
                             xaxis_title='Дата',
-                            yaxis1=dict(title='Вес (кг)', titlefont=dict(color='#ff7f0e')),
-                            yaxis2=dict(title='Объем (кг)', titlefont=dict(color='#2ca02c'), overlaying='y1', side='right'),
+                            yaxis=dict(
+                                title=dict(text='Вес (кг)', font=dict(color='#ff7f0e'))
+                            ),
+                            yaxis2=dict(
+                                title=dict(text='Объем (кг)', font=dict(color='#2ca02c')),
+                                overlaying='y',
+                                side='right'
+                            ),
                             hovermode='x unified',
                             height=500,
                             template='plotly_white',
                             legend=dict(x=0, y=1.1, orientation='h')
                         )
                         
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                         
                         col1, col2, col3 = st.columns(3)
                         with col1:
@@ -563,7 +572,9 @@ elif page == "📊 Прогресс":
             else:
                 st.warning("📭 Нет данных о тренировках. Добавь хотя бы одну тренировку.")
         
-        # Вкладка 3: БЖУ за день
+        # ====================================================================
+        # ВКЛАДКА 3: БЖУ ЗА ДЕНЬ
+        # ====================================================================
         with tab3:
             st.subheader("🥧 Соотношение БЖУ за день")
             
@@ -609,7 +620,7 @@ elif page == "📊 Прогресс":
                         )]
                     )
                     
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -619,11 +630,13 @@ elif page == "📊 Прогресс":
                     with col3:
                         st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
                 else:
-                    st.info(" Нет данных о макронутриентах за этот день")
+                    st.info("📭 Нет данных о макронутриентах за этот день")
             else:
                 st.info(f"📭 Нет записей о питании за {macro_date.strftime('%d.%m.%Y')}")
         
-        # Вкладка 4: Калории по дням
+        # ====================================================================
+        # ВКЛАДКА 4: КАЛОРИИ ПО ДНЯМ
+        # ====================================================================
         with tab4:
             st.subheader("🔥 Динамика калорийности по дням")
             
@@ -661,7 +674,7 @@ elif page == "📊 Прогресс":
                     template='plotly_white'
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -673,6 +686,5 @@ elif page == "📊 Прогресс":
                     st.metric("Максимум", f"{max(calories):.0f} ккал")
             else:
                 st.warning("📭 Нет данных о питании. Добавь хотя бы один прием пищи.")
-
 # Закрываем сессию
 session.close()
