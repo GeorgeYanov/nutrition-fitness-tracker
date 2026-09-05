@@ -5,7 +5,11 @@ import streamlit as st
 from datetime import date
 import pandas as pd
 from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult, ComplexMeal, ComplexMealComponent
-from calculations import calculate_food_calories, calculate_daily_totals, calculate_workout_volume, calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, calculate_complex_meal_totals
+from calculations import (
+        calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
+        calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
+        calculate_complex_meal_totals, get_standard_micro_goals
+    )
 from auth import register_user, authenticate_user
 
 # Настройка страницы
@@ -133,21 +137,21 @@ else:
                 FoodLog.date == today
             ).all()
             
+            # ✅ ИСПРАВЛЕНИЕ: Считаем totals ВСЕГДА, даже если список пустой (вернет нули)
+            totals = calculate_daily_totals(today_logs)
+            goals = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+            
             if today_logs:
-                totals = calculate_daily_totals(today_logs)
-                goals = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
-                
-                st.markdown("#### 📊 Прогресс за сегодня")
+                st.markdown("#### 📊 Прогресс за сегодня (Макронутриенты)")
                 
                 # Вспомогательная функция для красивого прогресс-бара
                 def render_progress(current, target, label, unit, color="#1f77b4"):
                     if target and target > 0:
-                        pct = min(current / target, 1.5) # Ограничиваем 150%, чтобы бар не ломался при переедании
+                        pct = min(current / target, 1.5) # Ограничиваем 150%
                         st.progress(pct, text=f"**{label}**: {current:.1f} / {target:.1f} {unit} ({(current/target)*100:.0f}%)")
                     else:
                         st.write(f"**{label}**: {current:.1f} {unit} *(Цель не задана в Профиле)*")
                 
-                # Получаем цели или дефолтные значения
                 t_cal = goals.target_calories if goals else None
                 t_prot = goals.target_protein if goals else None
                 t_fat = goals.target_fat if goals else None
@@ -160,6 +164,37 @@ else:
                 
             else:
                 st.info("📭 Пока нет записей о питании за сегодня. Самое время добавить завтрак!")
+
+            # ✅ ТЕПЕРЬ ЭТОТ БЛОК БЕЗОПАСЕН, ТАК КАК 'totals' ВСЕГДА СУЩЕСТВУЕТ
+            st.markdown("---")
+            with st.expander("🧪 Прогресс по микронутриентам за сегодня", expanded=False):
+                
+                micro_names = {
+                    'vit_a': ('Витамин А', 'мкг', '#f39c12'),
+                    'vit_c': ('Витамин С', 'мг', '#e67e22'),
+                    'vit_d': ('Витамин D', 'мкг', '#f1c40f'),
+                    'vit_e': ('Витамин E', 'мг', '#2ecc71'),
+                    'vit_k': ('Витамин K', 'мкг', '#27ae60'),
+                    'vit_b': ('Витамины B', 'мг', '#3498db'),
+                    'iron': ('Железо', 'мг', '#e74c3c'),
+                    'calcium': ('Кальций', 'мг', '#ecf0f1'),
+                    'magnesium': ('Магний', 'мг', '#9b59b6'),
+                    'zinc': ('Цинк', 'мг', '#95a5a6'),
+                    'iodine': ('Йод', 'мкг', '#1abc9c'),
+                    'selenium': ('Селен', 'мкг', '#34495e')
+                }
+                
+                cols_micro = st.columns(3)
+                for i, (key, (name, unit, color)) in enumerate(micro_names.items()):
+                    with cols_micro[i % 3]:
+                        current_val = totals.get(key, 0) # Теперь это работает всегда!
+                        target_val = getattr(goals, f"target_{key}") if goals else None
+                        
+                        if target_val and target_val > 0:
+                            pct = min(current_val / target_val, 1.5)
+                            st.progress(pct, text=f"**{name}**: {current_val:.1f} / {target_val:.1f} {unit}")
+                        else:
+                            st.write(f"**{name}**: {current_val:.1f} {unit} *(Цель не задана)*")
 
         # =========================================================================
         # СТРАНИЦА ПРОФИЛЯ (Личные данные и замеры)
@@ -346,7 +381,52 @@ else:
                         st.success("✅ Цели рассчитаны и сохранены!")
                         st.info(f"📊 **Твоя новая норма:** {macros['calories']} ккал | Б: {macros['protein']}г | Ж: {macros['fat']}г | У: {macros['carbs']}г")
                         st.rerun()
-                # =========================================================================
+                st.markdown("---")
+                st.subheader("🧪 Цели по микронутриентам")
+                st.caption("Приложение предложило нормы на основе твоего пола и веса. Ты можешь их изменить.")
+                
+                # Получаем текущие цели или генерируем дефолтные
+                current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                default_micros = get_standard_micro_goals(current_user.gender or 'male', latest_meas.weight)
+                
+                with st.form("micro_goals_form"):
+                    cols = st.columns(4)
+                    micro_fields = [
+                        ('Витамин A (мкг)', 'target_vit_a', default_micros['vit_a']),
+                        ('Витамин C (мг)', 'target_vit_c', default_micros['vit_c']),
+                        ('Витамин D (мкг)', 'target_vit_d', default_micros['vit_d']),
+                        ('Витамин E (мг)', 'target_vit_e', default_micros['vit_e']),
+                        ('Витамин K (мкг)', 'target_vit_k', default_micros['vit_k']),
+                        ('Витамины B (мг)', 'target_vit_b', default_micros['vit_b']),
+                        ('Железо (мг)', 'target_iron', default_micros['iron']),
+                        ('Кальций (мг)', 'target_calcium', default_micros['calcium']),
+                        ('Магний (мг)', 'target_magnesium', default_micros['magnesium']),
+                        ('Цинк (мг)', 'target_zinc', default_micros['zinc']),
+                        ('Йод (мкг)', 'target_iodine', default_micros['iodine']),
+                        ('Селен (мкг)', 'target_selenium', default_micros['selenium']),
+                    ]
+                    
+                    # Динамически создаем поля ввода
+                    micro_inputs = {}
+                    for i, (label, db_field, default_val) in enumerate(micro_fields):
+                        with cols[i % 4]:
+                            current_val = getattr(current_goal, db_field) if current_goal and getattr(current_goal, db_field) else default_val
+                            micro_inputs[db_field] = st.number_input(label, min_value=0.0, value=float(current_val), step=1.0, key=f"micro_{db_field}")
+                    
+                    submit_micro = st.form_submit_button("💾 Сохранить цели по микронутриентам", use_container_width=True)
+                    
+                    if submit_micro:
+                        if not current_goal:
+                            current_goal = UserGoal(user_id=current_user.user_id)
+                            session.add(current_goal)
+                        
+                        for db_field, value in micro_inputs.items():
+                            setattr(current_goal, db_field, value if value > 0 else None)
+                        
+                        session.commit()
+                        st.success("✅ Цели по микронутриентам обновлены!")
+                        st.rerun()
+        # =========================================================================
         # СТРАНИЦА "МОЯ ЕДА" (Управление справочником)
         # =========================================================================
         elif page == "🥗 Моя еда":
