@@ -428,92 +428,114 @@ else:
                 # ====== ФОРМА ДОБАВЛЕНИЯ ЕДЫ ======
                 st.subheader("➕ Добавить прием пищи")
                 
+                # =========================================================================
+                # 1. СЕЛЕКТОР ПРОДУКТА (СНАРУЖИ ФОРМЫ - для мгновенного обновления UI)
+                # =========================================================================
+                foods = session.query(Food).order_by(Food.name).all()
+                food_options = {f.name: f for f in foods}
+                
+                food_choice = st.selectbox(
+                    "Выбери продукт:",
+                    options=["🔍 Другое (добавить свой)"] + list(food_options.keys()),
+                    key="food_choice_selector" # Уникальный ключ обязателен
+                )
+
+                # =========================================================================
+                # 2. ОСНОВНАЯ ФОРМА (ВНУТРИ - для группировки отправки)
+                # =========================================================================
                 with st.form("add_food_form"):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        foods = session.query(Food).all()
-                        food_options = {f.name: f for f in foods}
-                        
-                        food_choice = st.selectbox(
-                            "Выбери продукт:",
-                            options=["🔍 Другое (добавить свой)"] + list(food_options.keys())
-                        )
-                        
-                        if food_choice == "🔍 Другое (добавить свой)":
-                            new_food_name = st.text_input("Название нового продукта:")
+                        # Теперь это условие срабатывает мгновенно при смене селектора выше!
+                        if food_choice != "🔍 Другое (добавить свой)":
+                            selected_preview = food_options[food_choice]
+                            st.info(
+                                f"📊 **КБЖУ на 100г:** {selected_preview.calories_per_100g} ккал | "
+                                f"Б: {selected_preview.protein_per_100g}г | "
+                                f"Ж: {selected_preview.fat_per_100g}г | "
+                                f"У: {selected_preview.carbs_per_100g}г"
+                            )
+                        else:
+                            st.markdown("###### 🆕 Параметры нового продукта")
+                            new_food_name = st.text_input("Название нового продукта:", key="new_food_name_input")
                             col_cal, col_p, col_f, col_c = st.columns(4)
                             with col_cal:
-                                new_cal = st.number_input("Ккал/100г", min_value=0.0, value=100.0, step=1.0)
+                                new_cal = st.number_input("Ккал/100г", min_value=0.0, value=100.0, step=1.0, key="new_cal_input")
                             with col_p:
-                                new_prot = st.number_input("Белки/100г", min_value=0.0, value=0.0, step=0.1)
+                                new_prot = st.number_input("Белки/100г", min_value=0.0, value=0.0, step=0.1, key="new_prot_input")
                             with col_f:
-                                new_fat = st.number_input("Жиры/100г", min_value=0.0, value=0.0, step=0.1)
+                                new_fat = st.number_input("Жиры/100г", min_value=0.0, value=0.0, step=0.1, key="new_fat_input")
                             with col_c:
-                                new_carb = st.number_input("Углеводы/100г", min_value=0.0, value=0.0, step=0.1)
+                                new_carb = st.number_input("Углеводы/100г", min_value=0.0, value=0.0, step=0.1, key="new_carb_input")
                         
                         weight = st.number_input(
                             "Сколько грамм съел?",
                             min_value=1,
                             max_value=5000,
                             value=100,
-                            step=10
+                            step=10,
+                            key="weight_input"
                         )
                     
                     with col2:
-                        meal_date = st.date_input("Дата приема:", value=selected_date)
+                        meal_date = st.date_input("Дата приема:", value=selected_date, key="meal_date_input")
                         
                         meal_type = st.selectbox(
                             "Тип приема пищи:",
                             ["breakfast", "lunch", "dinner", "snack"],
                             format_func=lambda x: {
                                 "breakfast": "🌅 Завтрак",
-                                "lunch": "️ Обед",
+                                "lunch": "☀️ Обед",
                                 "dinner": "🌙 Ужин",
                                 "snack": "🍪 Перекус"
-                            }[x]
+                            }[x],
+                            key="meal_type_input"
                         )
                     
-                    submitted = st.form_submit_button("✅ Добавить")
+                    submitted = st.form_submit_button("✅ Добавить", type="primary", use_container_width=True)
                     
                     if submitted:
+                        # ЛОГИКА СОХРАНЕНИЯ (использует переменную food_choice извне формы)
                         if food_choice == "🔍 Другое (добавить свой)":
                             if not new_food_name:
                                 st.error("❌ Введи название продукта!")
+                                st.stop()
+                            
+                            existing = session.query(Food).filter(Food.name.ilike(new_food_name)).first()
+                            if existing:
+                                selected_food = existing
+                                st.info(f"️ Продукт '{new_food_name}' уже есть в справочнике, используем его")
                             else:
-                                existing = session.query(Food).filter(Food.name == new_food_name).first()
-                                if existing:
-                                    selected_food = existing
-                                    st.info(f"ℹ️ Продукт '{new_food_name}' уже есть в справочнике")
-                                else:
-                                    selected_food = Food(
-                                        name=new_food_name,
-                                        calories_per_100g=new_cal,
-                                        protein_per_100g=new_prot,
-                                        fat_per_100g=new_fat,
-                                        carbs_per_100g=new_carb
-                                    )
-                                    session.add(selected_food)
-                                    session.flush()
-                                    st.success(f"✅ Продукт '{new_food_name}' добавлен в справочник!")
+                                selected_food = Food(
+                                    name=new_food_name,
+                                    calories_per_100g=new_cal,
+                                    protein_per_100g=new_prot,
+                                    fat_per_100g=new_fat,
+                                    carbs_per_100g=new_carb
+                                )
+                                session.add(selected_food)
+                                session.flush()
+                                st.success(f"✅ Продукт '{new_food_name}' добавлен в справочник!")
                         else:
                             selected_food = food_options[food_choice]
                         
-                        if food_choice != "🔍 Другое (добавить свой)" or new_food_name:
-                            new_log = FoodLog(
-                                user_id=current_user.user_id,
-                                food_id=selected_food.food_id,
-                                date=meal_date,
-                                meal_type=meal_type,
-                                weight_eaten=weight
-                            )
-                            session.add(new_log)
-                            session.commit()
-                            
-                            macros = calculate_food_calories(selected_food, weight)
-                            st.success(f"✅ Добавлено! Калории: {macros['calories']:.0f} ккал")
-                            st.balloons()
-                            
+                        # Создаем запись в дневнике
+                        new_log = FoodLog(
+                            user_id=current_user.user_id,
+                            food_id=selected_food.food_id,
+                            date=meal_date,
+                            meal_type=meal_type,
+                            weight_eaten=weight
+                        )
+                        session.add(new_log)
+                        session.commit()
+                        
+                        macros = calculate_food_calories(selected_food, weight)
+                        st.success(f"✅ Добавлено! Калории: {macros['calories']:.0f} ккал")
+                        st.balloons()
+                        st.rerun()
+
                 st.markdown("---")
                 st.subheader("🍲 Конструктор сложного блюда (Рецепт)")
                 st.caption("Идеально для домашних блюд. Добавляй ингредиенты по одному, указывай вес и способ приготовления, а затем сохрани всё блюдо целиком.")
