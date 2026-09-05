@@ -4,7 +4,7 @@
 import streamlit as st
 from datetime import date
 import pandas as pd
-from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult, ComplexMeal, ComplexMealComponent
+from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult, ComplexMeal, ComplexMealComponent, Allergen, UserAllergy
 from calculations import (
         calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
         calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
@@ -426,6 +426,96 @@ else:
                         session.commit()
                         st.success("✅ Цели по микронутриентам обновлены!")
                         st.rerun()
+            st.markdown("---")
+            
+            # ---------------------------------------------------------------------
+            # РАЗДЕЛ: АЛЛЕРГИИ И НЕПЕРЕНОСИМОСТИ
+            # ---------------------------------------------------------------------
+            st.subheader("⚠️ Аллергии и пищевые непереносимости")
+            st.caption("Отметь продукты, которые тебе нельзя употреблять. Это важно для будущего автоматического построения рациона.")
+            
+            # Получаем список всех доступных аллергенов из справочника
+            all_allergens = session.query(Allergen).order_by(Allergen.name).all()
+            
+            # Если справочник пуст, создаем базовые аллергены
+            if not all_allergens:
+                common_allergens = [
+                    'milk', 'gluten', 'nuts', 'eggs', 'soy', 
+                    'fish', 'shellfish', 'peanuts', 'wheat', 'dairy'
+                ]
+                for allergen_name in common_allergens:
+                    new_allergen = Allergen(name=allergen_name)
+                    session.add(new_allergen)
+                session.commit()
+                all_allergens = session.query(Allergen).order_by(Allergen.name).all()
+            
+            # Получаем текущие аллергии пользователя
+            user_allergies = session.query(UserAllergy).filter(
+                UserAllergy.user_id == current_user.user_id
+            ).all()
+            user_allergen_ids = {ua.allergen_id for ua in user_allergies}
+            
+            # Создаем словарь для отображения (английский -> русский)
+            allergen_display_names = {
+                'milk': '🥛 Молоко и молочные продукты',
+                'gluten': '🌾 Глютен (пшеница, рожь, ячмень)',
+                'nuts': '🌰 Орехи (все виды)',
+                'eggs': ' Яйца',
+                'soy': '🫘 Соя и соевые продукты',
+                'fish': '🐟 Рыба',
+                'shellfish': '🦐 Морепродукты (креветки, крабы)',
+                'peanuts': ' Арахис',
+                'wheat': '🌾 Пшеница',
+                'dairy': '🧀 Молочные продукты (сыр, йогурт)'
+            }
+            
+            with st.form("allergies_form"):
+                # Показываем чекбоксы в 2 колонки
+                cols_allergy = st.columns(2)
+                selected_allergens = []
+                
+                for i, allergen in enumerate(all_allergens):
+                    with cols_allergy[i % 2]:
+                        display_name = allergen_display_names.get(allergen.name, allergen.name)
+                        is_checked = allergen.allergen_id in user_allergen_ids
+                        
+                        if st.checkbox(display_name, value=is_checked, key=f"allergy_{allergen.allergen_id}"):
+                            selected_allergens.append(allergen.allergen_id)
+                
+                submit_allergies = st.form_submit_button(" Сохранить аллергии", type="primary", use_container_width=True)
+                
+                if submit_allergies:
+                    # Удаляем старые аллергии
+                    for ua in user_allergies:
+                        session.delete(ua)
+                    
+                    # Добавляем новые выбранные аллергии
+                    for allergen_id in selected_allergens:
+                        new_allergy = UserAllergy(
+                            user_id=current_user.user_id,
+                            allergen_id=allergen_id
+                        )
+                        session.add(new_allergy)
+                    
+                    session.commit()
+                    st.success(f"✅ Аллергии обновлены! Выбрано: {len(selected_allergens)}")
+                    st.rerun()
+            
+            # Показываем текущие аллергии красивым списком
+            if user_allergies:
+                st.markdown("##### 📋 Твои текущие аллергии:")
+                allergy_names = []
+                for ua in user_allergies:
+                    allergen = session.query(Allergen).filter(Allergen.allergen_id == ua.allergen_id).first()
+                    if allergen:
+                        display_name = allergen_display_names.get(allergen.name, allergen.name)
+                        allergy_names.append(display_name)
+                
+                for allergy_name in sorted(allergy_names):
+                    st.write(f"• {allergy_name}")
+            else:
+                st.info("✅ У тебя пока нет отмеченных аллергий.")
+
         # =========================================================================
         # СТРАНИЦА "МОЯ ЕДА" (Управление справочником)
         # =========================================================================
@@ -707,36 +797,35 @@ else:
 
                 st.markdown("---")
                 st.subheader("🍲 Конструктор сложного блюда (Рецепт)")
-                st.caption("Идеально для домашних блюд. Добавляй ингредиенты по одному, указывай вес и способ приготовления, а затем сохрани всё блюдо целиком.")
+                st.caption("Идеально для домашних блюд. Добавляй ингредиенты по одному, указывай вес, способ и время приготовления.")
                 
-                # Инициализация списка компонентов в session_state
                 if 'recipe_components' not in st.session_state:
                     st.session_state.recipe_components = []
-                    
+                
                 # =========================================================================
                 # ЧАСТЬ 1: ДИНАМИЧЕСКИЙ СПИСОК И ДОБАВЛЕНИЕ (СНАРУЖИ ФОРМЫ)
                 # =========================================================================
                 
-                # Отображение уже добавленных компонентов
                 if st.session_state.recipe_components:
                     st.markdown("##### 📋 Текущие ингредиенты:")
                     for idx, comp in enumerate(st.session_state.recipe_components):
-                        col_a, col_b, col_c, col_d = st.columns([3, 1, 2, 1])
+                        col_a, col_b, col_c, col_d, col_e = st.columns([3, 1, 2, 2, 1])
                         with col_a:
                             st.write(f"**{comp['food_name']}**")
                         with col_b:
                             st.write(f"{comp['weight']} г")
                         with col_c:
-                            st.caption(f"Приготовление: {comp['method']}")
+                            st.caption(f"Способ: {comp['method']}")
                         with col_d:
-                            # Кнопка удаления (разрешена снаружи формы)
+                            st.caption(f"Время: {comp['time']} мин")
+                        with col_e:
                             if st.button("❌", key=f"remove_comp_{idx}"):
                                 st.session_state.recipe_components.pop(idx)
                                 st.rerun()
                     st.markdown("---")
                 
                 st.markdown("##### ➕ Добавить новый ингредиент")
-                col_add1, col_add2, col_add3 = st.columns([3, 1, 2])
+                col_add1, col_add2, col_add3, col_add4 = st.columns([3, 1, 2, 2])
                 with col_add1:
                     foods = session.query(Food).order_by(Food.name).all()
                     food_options = {f.name: f for f in foods}
@@ -744,19 +833,25 @@ else:
                 with col_add2:
                     new_comp_weight = st.number_input("Вес (г)", min_value=1, value=100, step=10, key="new_comp_weight")
                 with col_add3:
-                    new_comp_method = st.text_input("Способ приготовления", value="Без обработки", key="new_comp_method", help="Например: 'Варка 10 мин, затем обжарка'")
+                    new_comp_method = st.selectbox(
+                        "Способ приготовления", 
+                        ["Без обработки", "Варка", "Жарка", "Тушение", "Запекание", "На пару", "Гриль", "Копчение"],
+                        key="new_comp_method"
+                    )
+                with col_add4:
+                    new_comp_time = st.number_input("Время (мин)", min_value=0, value=0, step=5, key="new_comp_time")
                 
-                # Кнопка добавления в список (СНАРУЖИ формы, поэтому st.button разрешен!)
                 if st.button("Добавить ингредиент в список", use_container_width=True):
                     selected_food = food_options[new_comp_food]
                     st.session_state.recipe_components.append({
                         'food_id': selected_food.food_id,
                         'food_name': selected_food.name,
                         'weight': new_comp_weight,
-                        'method': new_comp_method
+                        'method': new_comp_method,
+                        'time': new_comp_time
                     })
                     st.success(f"✅ {selected_food.name} добавлен!")
-                    st.rerun() # Мгновенно обновляем список выше
+                    st.rerun()
 
                 st.markdown("---")
                 
@@ -770,26 +865,21 @@ else:
                         with col1:
                             dish_name = st.text_input("🍽 Название готового блюда (например, 'Плов с курицей'):")
                         with col2:
-                            meal_type = st.selectbox("Прием пищи:", ["breakfast", "lunch", "dinner", "snack"], format_func=lambda x: {"breakfast": "🌅 Завтрак", "lunch": "☀️ Обед", "dinner": "🌙 Ужин", "snack": "🍪 Перекус"}[x])
+                            meal_type = st.selectbox("Прием пищи:", ["breakfast", "lunch", "dinner", "snack"], format_func=lambda x: {"breakfast": " Завтрак", "lunch": "️ Обед", "dinner": " Ужин", "snack": "🍪 Перекус"}[x])
                         
                         meal_date = st.date_input("Дата приготовления:", value=date.today())
                         
                         st.info(f"В блюдо будет добавлено ингредиентов: **{len(st.session_state.recipe_components)}**")
                         
-                        # ЕДИНСТВЕННАЯ кнопка внутри формы
                         submit_dish = st.form_submit_button("💾 Сохранить сложное блюдо в дневник", type="primary", use_container_width=True)
                         
                         if submit_dish:
                             if not dish_name:
                                 st.error("❌ Введи название блюда!")
                             else:
-                                # 1. Собираем все продукты в словарь для быстрого доступа
                                 foods_dict = {f.food_id: f for f in session.query(Food).all()}
-                                
-                                # 2. Считаем итоги через нашу функцию
                                 totals = calculate_complex_meal_totals(st.session_state.recipe_components, foods_dict)
                                 
-                                # 3. Создаем запись ComplexMeal
                                 new_meal = ComplexMeal(
                                     user_id=current_user.user_id,
                                     date=meal_date,
@@ -802,21 +892,19 @@ else:
                                     total_carbs=totals['carbs']
                                 )
                                 session.add(new_meal)
-                                session.flush() # Получаем meal_id
+                                session.flush()
                                 
-                                # 4. Создаем записи компонентов
                                 for comp in st.session_state.recipe_components:
                                     new_comp = ComplexMealComponent(
                                         meal_id=new_meal.meal_id,
                                         food_id=comp['food_id'],
                                         weight=comp['weight'],
-                                        cooking_method=comp['method']
+                                        cooking_method=comp['method'],
+                                        cooking_time=comp['time'] if comp['time'] > 0 else None
                                     )
                                     session.add(new_comp)
                                 
                                 session.commit()
-                                
-                                # 5. Очищаем session_state и радуемся
                                 st.session_state.recipe_components = []
                                 st.success(f"🎉 Блюдо '{dish_name}' сохранено! Итого: {totals['calories']:.0f} ккал, Б:{totals['protein']:.1f} Ж:{totals['fat']:.1f} У:{totals['carbs']:.1f}")
                                 st.balloons()
