@@ -437,7 +437,7 @@ else:
                 food_choice = st.selectbox(
                     "Выбери продукт:",
                     options=["🔍 Другое (добавить свой)"] + list(food_options.keys()),
-                    key="food_choice_selector" # Уникальный ключ обязателен
+                    key="simple_food_choice_selector" # Уникальный ключ с префиксом
                 )
 
                 # =========================================================================
@@ -447,7 +447,6 @@ else:
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Теперь это условие срабатывает мгновенно при смене селектора выше!
                         if food_choice != "🔍 Другое (добавить свой)":
                             selected_preview = food_options[food_choice]
                             st.info(
@@ -458,16 +457,41 @@ else:
                             )
                         else:
                             st.markdown("###### 🆕 Параметры нового продукта")
-                            new_food_name = st.text_input("Название нового продукта:", key="new_food_name_input")
+                            # Все ключи теперь имеют префикс simple_ для уникальности
+                            new_food_name = st.text_input("Название нового продукта:", key="simple_new_food_name")
                             col_cal, col_p, col_f, col_c = st.columns(4)
                             with col_cal:
-                                new_cal = st.number_input("Ккал/100г", min_value=0.0, value=100.0, step=1.0, key="new_cal_input")
+                                new_cal = st.number_input("Ккал/100г", min_value=0.0, value=100.0, step=1.0, key="simple_new_cal")
                             with col_p:
-                                new_prot = st.number_input("Белки/100г", min_value=0.0, value=0.0, step=0.1, key="new_prot_input")
+                                new_prot = st.number_input("Белки/100г", min_value=0.0, value=0.0, step=0.1, key="simple_new_prot")
                             with col_f:
-                                new_fat = st.number_input("Жиры/100г", min_value=0.0, value=0.0, step=0.1, key="new_fat_input")
+                                new_fat = st.number_input("Жиры/100г", min_value=0.0, value=0.0, step=0.1, key="simple_new_fat")
                             with col_c:
-                                new_carb = st.number_input("Углеводы/100г", min_value=0.0, value=0.0, step=0.1, key="new_carb_input")
+                                new_carb = st.number_input("Углеводы/100г", min_value=0.0, value=0.0, step=0.1, key="simple_new_carb")
+                            
+                            # Микронутриенты в раскрывающемся списке
+                            with st.expander("🧪 Микронутриенты (витамины и минералы)", expanded=False):
+                                st.caption("Укажите содержание на 100г продукта. Оставьте 0, если не знаете.")
+                                
+                                col_vit1, col_vit2, col_vit3 = st.columns(3)
+                                with col_vit1:
+                                    new_vit_a = st.number_input("Витамин А (мкг)", min_value=0.0, value=0.0, step=1.0, key="simple_vit_a")
+                                    new_vit_c = st.number_input("Витамин C (мг)", min_value=0.0, value=0.0, step=1.0, key="simple_vit_c")
+                                    new_vit_d = st.number_input("Витамин D (мкг)", min_value=0.0, value=0.0, step=0.1, key="simple_vit_d")
+                                with col_vit2:
+                                    new_vit_e = st.number_input("Витамин E (мг)", min_value=0.0, value=0.0, step=0.1, key="simple_vit_e")
+                                    new_vit_k = st.number_input("Витамин K (мкг)", min_value=0.0, value=0.0, step=1.0, key="simple_vit_k")
+                                    new_vit_b = st.number_input("Витамины B-группы (мг)", min_value=0.0, value=0.0, step=0.1, key="simple_vit_b")
+                                with col_vit3:
+                                    new_iron = st.number_input("Железо (мг)", min_value=0.0, value=0.0, step=0.1, key="simple_iron")
+                                    new_calcium = st.number_input("Кальций (мг)", min_value=0.0, value=0.0, step=1.0, key="simple_calcium")
+                                    new_magnesium = st.number_input("Магний (мг)", min_value=0.0, value=0.0, step=1.0, key="simple_magnesium")
+                                
+                                col_min1, col_min2, col_min3 = st.columns(3)
+                                with col_min1:
+                                    new_zinc = st.number_input("Цинк (мг)", min_value=0.0, value=0.0, step=0.1, key="simple_zinc")
+                                    new_iodine = st.number_input("Йод (мкг)", min_value=0.0, value=0.0, step=1.0, key="simple_iodine")
+                                    new_selenium = st.number_input("Селен (мкг)", min_value=0.0, value=0.0, step=1.0, key="simple_selenium")
                         
                         weight = st.number_input(
                             "Сколько грамм съел?",
@@ -475,11 +499,11 @@ else:
                             max_value=5000,
                             value=100,
                             step=10,
-                            key="weight_input"
+                            key="simple_weight_input"
                         )
                     
                     with col2:
-                        meal_date = st.date_input("Дата приема:", value=selected_date, key="meal_date_input")
+                        meal_date = st.date_input("Дата приема:", value=selected_date, key="simple_meal_date_input")
                         
                         meal_type = st.selectbox(
                             "Тип приема пищи:",
@@ -490,13 +514,12 @@ else:
                                 "dinner": "🌙 Ужин",
                                 "snack": "🍪 Перекус"
                             }[x],
-                            key="meal_type_input"
+                            key="simple_meal_type_input"
                         )
                     
                     submitted = st.form_submit_button("✅ Добавить", type="primary", use_container_width=True)
                     
                     if submitted:
-                        # ЛОГИКА СОХРАНЕНИЯ (использует переменную food_choice извне формы)
                         if food_choice == "🔍 Другое (добавить свой)":
                             if not new_food_name:
                                 st.error("❌ Введи название продукта!")
@@ -505,14 +528,27 @@ else:
                             existing = session.query(Food).filter(Food.name.ilike(new_food_name)).first()
                             if existing:
                                 selected_food = existing
-                                st.info(f"️ Продукт '{new_food_name}' уже есть в справочнике, используем его")
+                                st.info(f"ℹ️ Продукт '{new_food_name}' уже есть в справочнике, используем его")
                             else:
                                 selected_food = Food(
                                     name=new_food_name,
                                     calories_per_100g=new_cal,
                                     protein_per_100g=new_prot,
                                     fat_per_100g=new_fat,
-                                    carbs_per_100g=new_carb
+                                    carbs_per_100g=new_carb,
+                                    # Микронутриенты
+                                    vitamin_a=new_vit_a if new_vit_a > 0 else None,
+                                    vitamin_c=new_vit_c if new_vit_c > 0 else None,
+                                    vitamin_d=new_vit_d if new_vit_d > 0 else None,
+                                    vitamin_e=new_vit_e if new_vit_e > 0 else None,
+                                    vitamin_k=new_vit_k if new_vit_k > 0 else None,
+                                    vitamin_b_complex=new_vit_b if new_vit_b > 0 else None,
+                                    iron=new_iron if new_iron > 0 else None,
+                                    calcium=new_calcium if new_calcium > 0 else None,
+                                    magnesium=new_magnesium if new_magnesium > 0 else None,
+                                    zinc=new_zinc if new_zinc > 0 else None,
+                                    iodine=new_iodine if new_iodine > 0 else None,
+                                    selenium=new_selenium if new_selenium > 0 else None
                                 )
                                 session.add(selected_food)
                                 session.flush()
@@ -520,7 +556,6 @@ else:
                         else:
                             selected_food = food_options[food_choice]
                         
-                        # Создаем запись в дневнике
                         new_log = FoodLog(
                             user_id=current_user.user_id,
                             food_id=selected_food.food_id,
