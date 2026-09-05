@@ -195,57 +195,18 @@ class UserHabit(Base):
     user = relationship('User', back_populates='habits')
 
 
-class Food(Base):
-    """Справочник продуктов"""
-    __tablename__ = 'foods'
-    
-    food_id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=True)  # NULL для системных продуктов
-    name = Column(String(200), nullable=False)
-    calories_per_100g = Column(Float, nullable=False)
-    protein_per_100g = Column(Float, nullable=False)
-    fat_per_100g = Column(Float, nullable=False)
-    carbs_per_100g = Column(Float, nullable=False)
-    
-    # Флаг и ссылка на сложное блюдо
-    is_complex_meal = Column(Boolean, default=False)
-    complex_meal_id = Column(Integer, ForeignKey('complex_meals.meal_id'), nullable=True)
-    
-    # Микронутриенты (все на 100г)
-    vitamin_a = Column(Float)
-    vitamin_c = Column(Float)
-    vitamin_d = Column(Float)
-    vitamin_e = Column(Float)
-    vitamin_k = Column(Float)
-    vitamin_b_complex = Column(Float)
-    iron = Column(Float)
-    calcium = Column(Float)
-    magnesium = Column(Float)
-    zinc = Column(Float)
-    iodine = Column(Float)
-    selenium = Column(Float)
-    sodium = Column(Float)
-    cholesterol = Column(Float)
-    caffeine = Column(Float)
-    alcohol = Column(Float)
-    
-    logs = relationship('FoodLog', back_populates='food', cascade='all, delete-orphan')
-    complex_meal = relationship('ComplexMeal', back_populates='food')
-
-
 class FoodLog(Base):
     """Дневник питания"""
     __tablename__ = 'food_log'
     
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
-    food_id = Column(Integer, ForeignKey('foods.food_id'), nullable=False)
+    food_name = Column(String(200), nullable=False)  # ИЗМЕНЕНО: храним название, а не ID
     date = Column(Date, nullable=False)
-    meal_type = Column(String(20), nullable=False)  # breakfast, lunch, dinner, snack
+    meal_type = Column(String(20), nullable=False)
     weight_eaten = Column(Float, nullable=False)
     
     user = relationship('User', back_populates='food_logs')
-    food = relationship('Food', back_populates='logs')
 
 
 class Exercise(Base):
@@ -305,9 +266,7 @@ class ComplexMeal(Base):
     total_carbs = Column(Float)
     
     components = relationship('ComplexMealComponent', back_populates='meal', cascade='all, delete-orphan')
-    food = relationship('Food', back_populates='complex_meal', uselist=False)  # НОВАЯ СВЯЗЬ
     user = relationship('User', back_populates='complex_meals')
-
 
 class ComplexMealComponent(Base):
     """Отдельный ингредиент в составе сложного блюда"""
@@ -315,14 +274,40 @@ class ComplexMealComponent(Base):
     
     component_id = Column(Integer, primary_key=True)
     meal_id = Column(Integer, ForeignKey('complex_meals.meal_id'), nullable=False)
-    food_id = Column(Integer, ForeignKey('foods.food_id'), nullable=False)
-    
+    food_name = Column(String(200), nullable=False)  # ИЗМЕНЕНО: храним название
     weight = Column(Float, nullable=False)
-    cooking_method = Column(String(255))  # Например: "Варка", "Жарка", "Тушение"
-    cooking_time = Column(Float)  # Время приготовления в минутах
+    cooking_method = Column(String(255))
+    cooking_time = Column(Float)
     
     meal = relationship('ComplexMeal', back_populates='components')
-    food = relationship('Food')
+
+class CustomFood(Base):
+    """Пользовательские продукты (добавленные вручную)"""
+    __tablename__ = 'custom_foods'
+    
+    custom_food_id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    name = Column(String(200), nullable=False)
+    calories_per_100g = Column(Float, nullable=False)
+    protein_per_100g = Column(Float, nullable=False)
+    fat_per_100g = Column(Float, nullable=False)
+    carbs_per_100g = Column(Float, nullable=False)
+    
+    is_complex_meal = Column(Boolean, default=False)
+    complex_meal_id = Column(Integer, nullable=True)
+    
+    vitamin_a = Column(Float)
+    vitamin_c = Column(Float)
+    vitamin_d = Column(Float)
+    vitamin_e = Column(Float)
+    vitamin_k = Column(Float)
+    vitamin_b_complex = Column(Float)
+    iron = Column(Float)
+    calcium = Column(Float)
+    magnesium = Column(Float)
+    zinc = Column(Float)
+    iodine = Column(Float)
+    selenium = Column(Float)
 
 # ============================================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ
@@ -356,5 +341,4 @@ if __name__ == '__main__':
     session = get_session()
     print(f"✅ Сессия создана успешно")
     print(f"✅ Количество пользователей: {session.query(User).count()}")
-    print(f"✅ Количество продуктов: {session.query(Food).count()}")
     session.close()

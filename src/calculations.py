@@ -25,28 +25,18 @@ def calculate_tdee(bmr, activity_multiplier):
     return bmr * activity_multiplier
 
 def calculate_food_calories(food, weight_eaten):
-    """
-    Рассчитывает калории и макросы для съеденного продукта
-    
-    Args:
-        food: объект Food из базы данных
-        weight_eaten: сколько грамм съедено
-    
-    Returns:
-        dict с калориями и макросами
-    """
+    """Рассчитывает калории и макросы. Работает и с FoodItem, и с CustomFood"""
     multiplier = weight_eaten / 100.0
-    
     return {
-        'calories': food.calories_per_100g * multiplier,
-        'protein': food.protein_per_100g * multiplier,
-        'fat': food.fat_per_100g * multiplier,
-        'carbs': food.carbs_per_100g * multiplier
+        'calories': (getattr(food, 'calories_per_100g', 0) or 0) * multiplier,
+        'protein': (getattr(food, 'protein_per_100g', 0) or 0) * multiplier,
+        'fat': (getattr(food, 'fat_per_100g', 0) or 0) * multiplier,
+        'carbs': (getattr(food, 'carbs_per_100g', 0) or 0) * multiplier
     }
 
 
-def calculate_daily_totals(food_logs):
-    """Рассчитывает общие калории, макросы и микронутриенты за день"""
+def calculate_daily_totals(food_logs, foods_dict):
+    """Рассчитывает общие калории, макросы и микронутриенты за день по имени продукта"""
     totals = {
         'calories': 0, 'protein': 0, 'fat': 0, 'carbs': 0,
         'vit_a': 0, 'vit_c': 0, 'vit_d': 0, 'vit_e': 0, 'vit_k': 0, 'vit_b': 0,
@@ -54,27 +44,28 @@ def calculate_daily_totals(food_logs):
     }
     
     for log in food_logs:
-        food = log.food
+        food = foods_dict.get(log.food_name) # Ищем по имени!
+        if not food:
+            continue
+            
         mult = log.weight_eaten / 100.0
+        totals['calories'] += (getattr(food, 'calories_per_100g', 0) or 0) * mult
+        totals['protein'] += (getattr(food, 'protein_per_100g', 0) or 0) * mult
+        totals['fat'] += (getattr(food, 'fat_per_100g', 0) or 0) * mult
+        totals['carbs'] += (getattr(food, 'carbs_per_100g', 0) or 0) * mult
         
-        totals['calories'] += (food.calories_per_100g or 0) * mult
-        totals['protein'] += (food.protein_per_100g or 0) * mult
-        totals['fat'] += (food.fat_per_100g or 0) * mult
-        totals['carbs'] += (food.carbs_per_100g or 0) * mult
-        
-        # Суммируем микронутриенты (если они есть в продукте)
-        totals['vit_a'] += (food.vitamin_a or 0) * mult
-        totals['vit_c'] += (food.vitamin_c or 0) * mult
-        totals['vit_d'] += (food.vitamin_d or 0) * mult
-        totals['vit_e'] += (food.vitamin_e or 0) * mult
-        totals['vit_k'] += (food.vitamin_k or 0) * mult
-        totals['vit_b'] += (food.vitamin_b_complex or 0) * mult
-        totals['iron'] += (food.iron or 0) * mult
-        totals['calcium'] += (food.calcium or 0) * mult
-        totals['magnesium'] += (food.magnesium or 0) * mult
-        totals['zinc'] += (food.zinc or 0) * mult
-        totals['iodine'] += (food.iodine or 0) * mult
-        totals['selenium'] += (food.selenium or 0) * mult
+        totals['vit_a'] += (getattr(food, 'vitamin_a', 0) or 0) * mult
+        totals['vit_c'] += (getattr(food, 'vitamin_c', 0) or 0) * mult
+        totals['vit_d'] += (getattr(food, 'vitamin_d', 0) or 0) * mult
+        totals['vit_e'] += (getattr(food, 'vitamin_e', 0) or 0) * mult
+        totals['vit_k'] += (getattr(food, 'vitamin_k', 0) or 0) * mult
+        totals['vit_b'] += (getattr(food, 'vitamin_b_complex', 0) or 0) * mult
+        totals['iron'] += (getattr(food, 'iron', 0) or 0) * mult
+        totals['calcium'] += (getattr(food, 'calcium', 0) or 0) * mult
+        totals['magnesium'] += (getattr(food, 'magnesium', 0) or 0) * mult
+        totals['zinc'] += (getattr(food, 'zinc', 0) or 0) * mult
+        totals['iodine'] += (getattr(food, 'iodine', 0) or 0) * mult
+        totals['selenium'] += (getattr(food, 'selenium', 0) or 0) * mult
     
     return totals
 
@@ -174,33 +165,18 @@ def calculate_macro_goals(current_weight, target_weight, height, age, gender, ac
     }
 
 def calculate_complex_meal_totals(components_data, foods_dict):
-    """
-    Рассчитывает итоговые КБЖУ сложного блюда на основе его компонентов.
-    
-    Args:
-        components_data: список словарей [{'food_id': 1, 'weight': 100, 'method': 'Варка'}, ...]
-        foods_dict: словарь объектов Food из БД, где ключ - food_id
-    
-    Returns:
-        dict с общими весами и макросами
-    """
-    totals = {
-        'weight': 0.0,
-        'calories': 0.0,
-        'protein': 0.0,
-        'fat': 0.0,
-        'carbs': 0.0
-    }
+    """Рассчитывает итоги сложного блюда. foods_dict теперь ключуется по ИМЕНИ продукта"""
+    totals = {'weight': 0.0, 'calories': 0.0, 'protein': 0.0, 'fat': 0.0, 'carbs': 0.0}
     
     for comp in components_data:
-        food = foods_dict.get(comp['food_id'])
+        food = foods_dict.get(comp['food_name']) # Ищем по имени!
         if food:
             multiplier = comp['weight'] / 100.0
             totals['weight'] += comp['weight']
-            totals['calories'] += food.calories_per_100g * multiplier
-            totals['protein'] += food.protein_per_100g * multiplier
-            totals['fat'] += food.fat_per_100g * multiplier
-            totals['carbs'] += food.carbs_per_100g * multiplier
+            totals['calories'] += (getattr(food, 'calories_per_100g', 0) or 0) * multiplier
+            totals['protein'] += (getattr(food, 'protein_per_100g', 0) or 0) * multiplier
+            totals['fat'] += (getattr(food, 'fat_per_100g', 0) or 0) * multiplier
+            totals['carbs'] += (getattr(food, 'carbs_per_100g', 0) or 0) * multiplier
             
     return totals
 

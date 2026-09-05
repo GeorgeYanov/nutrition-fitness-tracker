@@ -4,7 +4,12 @@
 import streamlit as st
 from datetime import date
 import pandas as pd
-from database import get_session, User, Food, Exercise, FoodLog, Workout, WorkoutLog, UserMeasurement, UserGoal, MedicalResult, ComplexMeal, ComplexMealComponent, Allergen, UserAllergy
+from database import (
+    get_session, User, Exercise, FoodLog, Workout, WorkoutLog, 
+    UserMeasurement, UserGoal, MedicalResult, ComplexMeal, 
+    ComplexMealComponent, Allergen, UserAllergy, CustomFood
+)
+from foods_database import get_all_foods, get_food_by_name, FoodItem
 from calculations import (
         calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
         calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
@@ -137,8 +142,14 @@ else:
                 FoodLog.date == today
             ).all()
             
-            # ✅ ИСПРАВЛЕНИЕ: Считаем totals ВСЕГДА, даже если список пустой (вернет нули)
-            totals = calculate_daily_totals(today_logs)
+            # Собираем словарь продуктов для расчетов
+            all_foods_dict = {}
+            for f in get_all_foods():
+                all_foods_dict[f.name] = f
+            for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                all_foods_dict[f.name] = f
+
+            totals = calculate_daily_totals(today_logs, all_foods_dict)
             goals = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
             
             if today_logs:
@@ -523,7 +534,8 @@ else:
             st.header("🥗 Справочник моей еды")
             st.info("💡 Здесь отображаются все продукты, которые ты добавил вручную. Они сохраняются навсегда.")
             
-            foods = session.query(Food).order_by(Food.name).all()
+            foods = get_all_foods()
+            food_options = {f.name: f for f in foods}
             
             if foods:
                 import pandas as pd
@@ -595,7 +607,7 @@ else:
                         confirm_delete = st.form_submit_button("Удалить", type="primary")
                     
                     if confirm_delete:
-                        food_obj = session.query(Food).filter(Food.name == food_to_delete).first()
+                        food_obj = session.query(CustomFood).filter(FoodItem.name == food_to_delete).first()
                         if food_obj:
                             session.delete(food_obj)
                             session.commit()
@@ -632,7 +644,7 @@ else:
                 # =========================================================================
                 # 1. СЕЛЕКТОР ПРОДУКТА (СНАРУЖИ ФОРМЫ - для мгновенного обновления UI)
                 # =========================================================================
-                foods = session.query(Food).order_by(Food.name).all()
+                foods = get_all_foods()
                 food_options = {f.name: f for f in foods}
                 
                 food_choice = st.selectbox(
@@ -749,18 +761,16 @@ else:
                                 st.error("❌ Введи название продукта!")
                                 st.stop()
                             
-                            existing = session.query(Food).filter(Food.name.ilike(new_food_name)).first()
+                            existing = session.query(CustomFood).filter(CustomFood.name.ilike(new_food_name)).first()
                             if existing:
                                 selected_food = existing
                                 st.info(f"ℹ️ Продукт '{new_food_name}' уже есть в справочнике, используем его")
                             else:
-                                selected_food = Food(
+                                selected_food = CustomFood(
+                                    user_id=current_user.user_id,
                                     name=new_food_name,
-                                    calories_per_100g=new_cal,
-                                    protein_per_100g=new_prot,
-                                    fat_per_100g=new_fat,
-                                    carbs_per_100g=new_carb,
-                                    # Микронутриенты
+                                    calories_per_100g=new_cal, protein_per_100g=new_prot,
+                                    fat_per_100g=new_fat, carbs_per_100g=new_carb,
                                     vitamin_a=new_vit_a if new_vit_a > 0 else None,
                                     vitamin_c=new_vit_c if new_vit_c > 0 else None,
                                     vitamin_d=new_vit_d if new_vit_d > 0 else None,
@@ -775,14 +785,15 @@ else:
                                     selenium=new_selenium if new_selenium > 0 else None
                                 )
                                 session.add(selected_food)
-                                session.flush()
+                                session.commit()
                                 st.success(f"✅ Продукт '{new_food_name}' добавлен в справочник!")
                         else:
                             selected_food = food_options[food_choice]
                         
+                        # Создаем запись в дневнике (теперь используем food_name)
                         new_log = FoodLog(
                             user_id=current_user.user_id,
-                            food_id=selected_food.food_id,
+                            food_name=selected_food.name,
                             date=meal_date,
                             meal_type=meal_type,
                             weight_eaten=weight
@@ -827,7 +838,7 @@ else:
                 st.markdown("##### ➕ Добавить новый ингредиент")
                 col_add1, col_add2, col_add3, col_add4 = st.columns([3, 1, 2, 2])
                 with col_add1:
-                    foods = session.query(Food).order_by(Food.name).all()
+                    foods = get_all_foods()
                     food_options = {f.name: f for f in foods}
                     new_comp_food = st.selectbox("Продукт из справочника:", list(food_options.keys()), key="new_comp_food_select")
                 with col_add2:
@@ -844,8 +855,7 @@ else:
                 if st.button("Добавить ингредиент в список", width='stretch'):
                     selected_food = food_options[new_comp_food]
                     st.session_state.recipe_components.append({
-                        'food_id': selected_food.food_id,
-                        'food_name': selected_food.name,
+                        'food_name': selected_food.name, # Храним имя, а не ID
                         'weight': new_comp_weight,
                         'method': new_comp_method,
                         'time': new_comp_time
@@ -877,72 +887,60 @@ else:
                             if not dish_name:
                                 st.error("❌ Введи название блюда!")
                             else:
-                                foods_dict = {f.food_id: f for f in session.query(Food).all()}
+                                # Собираем ВСЕ продукты (и стандартные, и кастомные) в словарь по ИМЕНИ
+                                foods_dict = {}
+                                for f in get_all_foods():
+                                    foods_dict[f.name] = f
+                                for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                                    foods_dict[f.name] = f
+                                
                                 totals = calculate_complex_meal_totals(st.session_state.recipe_components, foods_dict)
                                 
-                                # 1. Создаем запись ComplexMeal (для хранения деталей рецепта)
                                 new_meal = ComplexMeal(
-                                    user_id=current_user.user_id,
-                                    date=meal_date,
-                                    meal_type=meal_type,
-                                    dish_name=dish_name,
-                                    total_weight=totals['weight'],
-                                    total_calories=totals['calories'],
-                                    total_protein=totals['protein'],
-                                    total_fat=totals['fat'],
-                                    total_carbs=totals['carbs']
+                                    user_id=current_user.user_id, date=meal_date, meal_type=meal_type,
+                                    dish_name=dish_name, total_weight=totals['weight'],
+                                    total_calories=totals['calories'], total_protein=totals['protein'],
+                                    total_fat=totals['fat'], total_carbs=totals['carbs']
                                 )
                                 session.add(new_meal)
                                 session.flush()
                                 
-                                # 2. Создаем компоненты блюда
                                 for comp in st.session_state.recipe_components:
                                     new_comp = ComplexMealComponent(
                                         meal_id=new_meal.meal_id,
-                                        food_id=comp['food_id'],
+                                        food_name=comp['food_name'], # Сохраняем имя
                                         weight=comp['weight'],
                                         cooking_method=comp['method'],
                                         cooking_time=comp['time'] if comp['time'] > 0 else None
                                     )
                                     session.add(new_comp)
                                 
-                                # 3. Проверяем, есть ли уже такое блюдо в справочнике продуктов
-                                existing_food = session.query(Food).filter(
-                                    Food.name.ilike(dish_name),
-                                    Food.user_id == current_user.user_id
+                                existing_food = session.query(CustomFood).filter(
+                                    CustomFood.name.ilike(dish_name),
+                                    CustomFood.user_id == current_user.user_id
                                 ).first()
                                 
                                 if not existing_food:
-                                    # Создаем запись в справочнике продуктов
-                                    new_food = Food(
-                                        user_id=current_user.user_id,
-                                        name=dish_name,
+                                    new_food = CustomFood(
+                                        user_id=current_user.user_id, name=dish_name,
                                         calories_per_100g=(totals['calories'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         protein_per_100g=(totals['protein'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         fat_per_100g=(totals['fat'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         carbs_per_100g=(totals['carbs'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
-                                        is_complex_meal=True,
-                                        complex_meal_id=new_meal.meal_id
+                                        is_complex_meal=True, complex_meal_id=new_meal.meal_id
                                     )
                                     session.add(new_food)
-                                    session.flush()
-                                    meal_food_id = new_food.food_id
-                                else:
-                                    meal_food_id = existing_food.food_id
                                 
-                                # 4. Создаем запись в дневнике питания
                                 new_log = FoodLog(
                                     user_id=current_user.user_id,
-                                    food_id=meal_food_id,
-                                    date=meal_date,
-                                    meal_type=meal_type,
-                                    weight_eaten=totals['weight']
+                                    food_name=dish_name, # Сохраняем имя блюда
+                                    date=meal_date, meal_type=meal_type, weight_eaten=totals['weight']
                                 )
                                 session.add(new_log)
-                                
                                 session.commit()
+                                
                                 st.session_state.recipe_components = []
-                                st.success(f"🎉 Блюдо '{dish_name}' сохранено и добавлено в дневник! Итого: {totals['calories']:.0f} ккал, Б:{totals['protein']:.1f} Ж:{totals['fat']:.1f} У:{totals['carbs']:.1f}")
+                                st.success(f"🎉 Блюдо '{dish_name}' сохранено! Итого: {totals['calories']:.0f} ккал")
                                 st.balloons()
                                 st.rerun()
                 else:
@@ -960,78 +958,59 @@ else:
                     FoodLog.date == selected_date
                 ).order_by(FoodLog.id.desc()).all()
                 
+                # Собираем словарь продуктов для расчетов
+                all_foods_dict = {}
+                for f in get_all_foods():
+                    all_foods_dict[f.name] = f
+                for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                    all_foods_dict[f.name] = f
+                
                 if day_logs:
-                    meals_grouped = {
-                        'breakfast': [], 'lunch': [], 'dinner': [], 'snack': []
-                    }
+                    meals_grouped = {'breakfast': [], 'lunch': [], 'dinner': [], 'snack': []}
                     for log in day_logs:
                         meals_grouped[log.meal_type].append(log)
                     
-                    meal_names = {
-                        'breakfast': ' Завтрак',
-                        'lunch': '☀️ Обед',
-                        'dinner': '🌙 Ужин',
-                        'snack': '🍪 Перекусы'
-                    }
+                    meal_names = {'breakfast': '🌅 Завтрак', 'lunch': '☀️ Обед', 'dinner': '🌙 Ужин', 'snack': '🍪 Перекусы'}
                     
                     for meal_type, logs in meals_grouped.items():
                         if logs:
                             st.markdown(f"### {meal_names[meal_type]}")
                             
                             for log in logs:
-                                macros = calculate_food_calories(log.food, log.weight_eaten)
+                                food_item = all_foods_dict.get(log.food_name)
+                                macros = calculate_food_calories(food_item, log.weight_eaten) if food_item else {'calories': 0, 'protein': 0, 'fat': 0, 'carbs': 0}
                                 
                                 col1, col2, col3 = st.columns([3, 2, 1])
-                                
                                 with col1:
-                                    # Проверяем, является ли продукт сложным блюдом
-                                    if log.food.is_complex_meal and log.food.complex_meal_id:
-                                        complex_meal = session.query(ComplexMeal).filter(
-                                            ComplexMeal.meal_id == log.food.complex_meal_id
-                                        ).first()
-                                        
+                                    st.write(f"**{log.food_name}** — {log.weight_eaten}г")
+                                    st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
+                                    
+                                    if isinstance(food_item, CustomFood) and food_item.is_complex_meal and food_item.complex_meal_id:
+                                        complex_meal = session.query(ComplexMeal).filter(ComplexMeal.meal_id == food_item.complex_meal_id).first()
                                         if complex_meal:
-                                            st.write(f"**{log.food.name}** — {log.weight_eaten}г")
-                                            st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
-                                            
-                                            # Раскрывающийся список с ингредиентами
                                             with st.expander("📝 Состав блюда"):
                                                 for comp in complex_meal.components:
-                                                    ingredient = session.query(Food).filter(Food.food_id == comp.food_id).first()
-                                                    if ingredient:
-                                                        time_str = f", {int(comp.cooking_time)} мин" if comp.cooking_time else ""
-                                                        st.write(f"• {ingredient.name}: {comp.weight}г ({comp.cooking_method}{time_str})")
-                                        else:
-                                            st.write(f"**{log.food.name}** — {log.weight_eaten}г")
-                                            st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
-                                    else:
-                                        st.write(f"**{log.food.name}** — {log.weight_eaten}г")
-                                        st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
+                                                    time_str = f", {int(comp.cooking_time)} мин" if comp.cooking_time else ""
+                                                    st.write(f"• {comp.food_name}: {comp.weight}г ({comp.cooking_method}{time_str})")
                                 
                                 with col2:
                                     st.write(f"**{macros['calories']:.0f} ккал**")
-                                
                                 with col3:
                                     if st.button("🗑️", key=f"del_food_{log.id}"):
                                         session.delete(log)
                                         session.commit()
                                         st.rerun()
-                            
                             st.markdown("")
                     
-                    totals = calculate_daily_totals(day_logs)
+                    # Используем обновленную функцию с передачей словаря
+                    totals = calculate_daily_totals(day_logs, all_foods_dict)
                     st.markdown("---")
                     st.subheader("📊 Итого за день")
-                    
                     col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("🔥 Калории", f"{totals['calories']:.0f} ккал")
-                    with col2:
-                        st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
-                    with col3:
-                        st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
-                    with col4:
-                        st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
+                    with col1: st.metric("🔥 Калории", f"{totals['calories']:.0f} ккал")
+                    with col2: st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
+                    with col3: st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
+                    with col4: st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
                 else:
                     st.info(f"📭 Записей за {selected_date.strftime('%d.%m.%Y')} пока нет")
 
@@ -1541,7 +1520,14 @@ else:
                     ).all()
                     
                     if day_logs:
-                        totals = calculate_daily_totals(day_logs)
+                        # ✅ ИСПРАВЛЕНИЕ: Создаем словарь продуктов и передаем его в функцию
+                        all_foods_dict = {}
+                        for f in get_all_foods():
+                            all_foods_dict[f.name] = f
+                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                            all_foods_dict[f.name] = f
+                            
+                        totals = calculate_daily_totals(day_logs, all_foods_dict)
                         
                         if totals['protein'] > 0 or totals['fat'] > 0 or totals['carbs'] > 0:
                             import plotly.graph_objects as go
@@ -1598,9 +1584,18 @@ else:
                         import plotly.graph_objects as go
                         from collections import defaultdict
                         
+                        # ✅ ИСПРАВЛЕНИЕ: Создаем словарь продуктов
+                        all_foods_dict = {}
+                        for f in get_all_foods():
+                            all_foods_dict[f.name] = f
+                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                            all_foods_dict[f.name] = f
+                        
                         calories_by_date = defaultdict(float)
                         for log in all_food_logs:
-                            macros = calculate_food_calories(log.food, log.weight_eaten)
+                            # ✅ ИСПРАВЛЕНИЕ: Используем food_name и словарь вместо log.food
+                            food_item = all_foods_dict.get(log.food_name)
+                            macros = calculate_food_calories(food_item, log.weight_eaten) if food_item else {'calories': 0}
                             calories_by_date[log.date] += macros['calories']
                         
                         sorted_dates = sorted(calories_by_date.keys())
