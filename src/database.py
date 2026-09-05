@@ -92,7 +92,7 @@ class UserGoal(Base):
     user_id = Column(Integer, ForeignKey('users.user_id'), primary_key=True)
     target_weight = Column(Float)
     target_fat_percent = Column(Float)
-    target_muscle_mass = Column(Float) # <-- ДОБАВЛЕНО
+    target_muscle_mass = Column(Float)
     meals_per_day = Column(Integer)
     workouts_per_week = Column(Integer)
     
@@ -100,6 +100,20 @@ class UserGoal(Base):
     target_protein = Column(Float)
     target_fat = Column(Float)
     target_carbs = Column(Float)
+    
+    # НОВЫЕ ПОЛЯ: Цели по микронутриентам (в мг или мкг)
+    target_vit_a = Column(Float)
+    target_vit_c = Column(Float)
+    target_vit_d = Column(Float)
+    target_vit_e = Column(Float)
+    target_vit_k = Column(Float)
+    target_vit_b = Column(Float)
+    target_iron = Column(Float)
+    target_calcium = Column(Float)
+    target_magnesium = Column(Float)
+    target_zinc = Column(Float)
+    target_iodine = Column(Float)
+    target_selenium = Column(Float)
     
     user = relationship('User', back_populates='goals')
 
