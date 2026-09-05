@@ -123,20 +123,19 @@ class Allergen(Base):
     __tablename__ = 'allergens'
     
     allergen_id = Column(Integer, primary_key=True)
-    name = Column(String(100), unique=True, nullable=False)
-    
-    users = relationship('UserAllergy', back_populates='allergen')
+    name = Column(String(100), nullable=False, unique=True)  # например, 'milk', 'gluten', 'nuts'
 
 
 class UserAllergy(Base):
-    """Связь пользователь-аллергия"""
+    """Аллергии пользователя"""
     __tablename__ = 'user_allergies'
     
-    user_id = Column(Integer, ForeignKey('users.user_id'), primary_key=True)
-    allergen_id = Column(Integer, ForeignKey('allergens.allergen_id'), primary_key=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    allergen_id = Column(Integer, ForeignKey('allergens.allergen_id'), nullable=False)
     
     user = relationship('User', back_populates='allergies')
-    allergen = relationship('Allergen', back_populates='users')
+    allergen = relationship('Allergen')
 
 
 class Injury(Base):
@@ -310,10 +309,11 @@ class ComplexMealComponent(Base):
     
     component_id = Column(Integer, primary_key=True)
     meal_id = Column(Integer, ForeignKey('complex_meals.meal_id'), nullable=False)
-    food_id = Column(Integer, ForeignKey('foods.food_id'), nullable=False) # Ссылка на справочник продуктов
+    food_id = Column(Integer, ForeignKey('foods.food_id'), nullable=False)
     
-    weight = Column(Float, nullable=False) # Вес компонента в граммах
-    cooking_method = Column(String(255)) # Например: "Сырой", "Варка, затем обжарка"
+    weight = Column(Float, nullable=False)
+    cooking_method = Column(String(255))  # Например: "Варка", "Жарка", "Тушение"
+    cooking_time = Column(Float)  # Время приготовления в минутах
     
     meal = relationship('ComplexMeal', back_populates='components')
     food = relationship('Food')
