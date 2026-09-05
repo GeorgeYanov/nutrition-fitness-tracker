@@ -147,7 +147,7 @@ else:
                 # Вспомогательная функция для красивого прогресс-бара
                 def render_progress(current, target, label, unit, color="#1f77b4"):
                     if target and target > 0:
-                        pct = min(current / target, 1.5) # Ограничиваем 150%
+                        pct = min(current / target, 1.0) # Ограничиваем 100%
                         st.progress(pct, text=f"**{label}**: {current:.1f} / {target:.1f} {unit} ({(current/target)*100:.0f}%)")
                     else:
                         st.write(f"**{label}**: {current:.1f} {unit} *(Цель не задана в Профиле)*")
@@ -191,7 +191,7 @@ else:
                         target_val = getattr(goals, f"target_{key}") if goals else None
                         
                         if target_val and target_val > 0:
-                            pct = min(current_val / target_val, 1.5)
+                            pct = min(current_val / target_val, 1.0)
                             st.progress(pct, text=f"**{name}**: {current_val:.1f} / {target_val:.1f} {unit}")
                         else:
                             st.write(f"**{name}**: {current_val:.1f} {unit} *(Цель не задана)*")
