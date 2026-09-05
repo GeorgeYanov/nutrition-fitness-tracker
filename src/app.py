@@ -449,15 +449,39 @@ else:
                     with col1:
                         if food_choice != "🔍 Другое (добавить свой)":
                             selected_preview = food_options[food_choice]
+                            
+                            # 1. Основной блок с КБЖУ (всегда виден)
                             st.info(
                                 f"📊 **КБЖУ на 100г:** {selected_preview.calories_per_100g} ккал | "
                                 f"Б: {selected_preview.protein_per_100g}г | "
                                 f"Ж: {selected_preview.fat_per_100g}г | "
                                 f"У: {selected_preview.carbs_per_100g}г"
                             )
+                            
+                            # 2. Динамический сбор микронутриентов (проверяем, что они не None)
+                            micros = []
+                            if selected_preview.vitamin_a is not None: micros.append(f"Вит. А: {selected_preview.vitamin_a} мкг")
+                            if selected_preview.vitamin_c is not None: micros.append(f"Вит. C: {selected_preview.vitamin_c} мг")
+                            if selected_preview.vitamin_d is not None: micros.append(f"Вит. D: {selected_preview.vitamin_d} мкг")
+                            if selected_preview.vitamin_e is not None: micros.append(f"Вит. E: {selected_preview.vitamin_e} мг")
+                            if selected_preview.vitamin_k is not None: micros.append(f"Вит. K: {selected_preview.vitamin_k} мкг")
+                            if selected_preview.vitamin_b_complex is not None: micros.append(f"Вит. B: {selected_preview.vitamin_b_complex} мг")
+                            if selected_preview.iron is not None: micros.append(f"Железо: {selected_preview.iron} мг")
+                            if selected_preview.calcium is not None: micros.append(f"Кальций: {selected_preview.calcium} мг")
+                            if selected_preview.magnesium is not None: micros.append(f"Магний: {selected_preview.magnesium} мг")
+                            if selected_preview.zinc is not None: micros.append(f"Цинк: {selected_preview.zinc} мг")
+                            if selected_preview.iodine is not None: micros.append(f"Йод: {selected_preview.iodine} мкг")
+                            if selected_preview.selenium is not None: micros.append(f"Селен: {selected_preview.selenium} мкг")
+                            
+                            # 3. Показываем блок только если есть хотя бы один микронутриент
+                            if micros:
+                                with st.expander("🧪 Содержит микронутриенты (на 100г)", expanded=False):
+                                    cols = st.columns(3)
+                                    for i, micro_text in enumerate(micros):
+                                        with cols[i % 3]: # Распределяем по 3 колонкам для компактности
+                                            st.caption(f"• {micro_text}")
                         else:
                             st.markdown("###### 🆕 Параметры нового продукта")
-                            # Все ключи теперь имеют префикс simple_ для уникальности
                             new_food_name = st.text_input("Название нового продукта:", key="simple_new_food_name")
                             col_cal, col_p, col_f, col_c = st.columns(4)
                             with col_cal:
@@ -469,7 +493,6 @@ else:
                             with col_c:
                                 new_carb = st.number_input("Углеводы/100г", min_value=0.0, value=0.0, step=0.1, key="simple_new_carb")
                             
-                            # Микронутриенты в раскрывающемся списке
                             with st.expander("🧪 Микронутриенты (витамины и минералы)", expanded=False):
                                 st.caption("Укажите содержание на 100г продукта. Оставьте 0, если не знаете.")
                                 
