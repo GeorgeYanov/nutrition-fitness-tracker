@@ -413,7 +413,7 @@ else:
                             current_val = getattr(current_goal, db_field) if current_goal and getattr(current_goal, db_field) else default_val
                             micro_inputs[db_field] = st.number_input(label, min_value=0.0, value=float(current_val), step=1.0, key=f"micro_{db_field}")
                     
-                    submit_micro = st.form_submit_button("💾 Сохранить цели по микронутриентам", use_container_width=True)
+                    submit_micro = st.form_submit_button("💾 Сохранить цели по микронутриентам", width='stretch')
                     
                     if submit_micro:
                         if not current_goal:
@@ -482,7 +482,7 @@ else:
                         if st.checkbox(display_name, value=is_checked, key=f"allergy_{allergen.allergen_id}"):
                             selected_allergens.append(allergen.allergen_id)
                 
-                submit_allergies = st.form_submit_button(" Сохранить аллергии", type="primary", use_container_width=True)
+                submit_allergies = st.form_submit_button(" Сохранить аллергии", type="primary", width='stretch')
                 
                 if submit_allergies:
                     # Удаляем старые аллергии
@@ -567,7 +567,7 @@ else:
                 st.subheader("📊 Макронутриенты (на 100г)")
                 st.dataframe(
                     df_macros[["Название", "Ккал", "Белки", "Жиры", "Углеводы"]], 
-                    use_container_width=True, 
+                    width='stretch', 
                     hide_index=True
                 )
                 
@@ -578,7 +578,7 @@ else:
                     st.caption("Значение 0 означает, что данные не были указаны при создании продукта.")
                     st.dataframe(
                         df_micros[["Название", "Вит.А (мкг)", "Вит.C (мг)", "Вит.D (мкг)", "Вит.E (мг)", "Вит.K (мкг)", "Вит.B (мг)", "Железо (мг)", "Кальций (мг)", "Магний (мг)", "Цинк (мг)", "Йод (мкг)", "Селен (мкг)"]], 
-                        use_container_width=True, 
+                        width='stretch', 
                         hide_index=True
                     )
                 
@@ -741,7 +741,7 @@ else:
                             key="simple_meal_type_input"
                         )
                     
-                    submitted = st.form_submit_button("✅ Добавить", type="primary", use_container_width=True)
+                    submitted = st.form_submit_button("✅ Добавить", type="primary", width='stretch')
                     
                     if submitted:
                         if food_choice == "🔍 Другое (добавить свой)":
@@ -841,7 +841,7 @@ else:
                 with col_add4:
                     new_comp_time = st.number_input("Время (мин)", min_value=0, value=0, step=5, key="new_comp_time")
                 
-                if st.button("Добавить ингредиент в список", use_container_width=True):
+                if st.button("Добавить ингредиент в список", width='stretch'):
                     selected_food = food_options[new_comp_food]
                     st.session_state.recipe_components.append({
                         'food_id': selected_food.food_id,
@@ -871,7 +871,7 @@ else:
                         
                         st.info(f"В блюдо будет добавлено ингредиентов: **{len(st.session_state.recipe_components)}**")
                         
-                        submit_dish = st.form_submit_button("💾 Сохранить сложное блюдо в дневник", type="primary", use_container_width=True)
+                        submit_dish = st.form_submit_button("💾 Сохранить сложное блюдо в дневник", type="primary", width='stretch')
                         
                         if submit_dish:
                             if not dish_name:
@@ -880,6 +880,7 @@ else:
                                 foods_dict = {f.food_id: f for f in session.query(Food).all()}
                                 totals = calculate_complex_meal_totals(st.session_state.recipe_components, foods_dict)
                                 
+                                # 1. Создаем запись ComplexMeal (для хранения деталей рецепта)
                                 new_meal = ComplexMeal(
                                     user_id=current_user.user_id,
                                     date=meal_date,
@@ -894,6 +895,7 @@ else:
                                 session.add(new_meal)
                                 session.flush()
                                 
+                                # 2. Создаем компоненты блюда
                                 for comp in st.session_state.recipe_components:
                                     new_comp = ComplexMealComponent(
                                         meal_id=new_meal.meal_id,
@@ -904,16 +906,53 @@ else:
                                     )
                                     session.add(new_comp)
                                 
+                                # 3. Проверяем, есть ли уже такое блюдо в справочнике продуктов
+                                existing_food = session.query(Food).filter(
+                                    Food.name.ilike(dish_name),
+                                    Food.user_id == current_user.user_id
+                                ).first()
+                                
+                                if not existing_food:
+                                    # Создаем запись в справочнике продуктов
+                                    new_food = Food(
+                                        user_id=current_user.user_id,
+                                        name=dish_name,
+                                        calories_per_100g=(totals['calories'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
+                                        protein_per_100g=(totals['protein'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
+                                        fat_per_100g=(totals['fat'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
+                                        carbs_per_100g=(totals['carbs'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
+                                        is_complex_meal=True,
+                                        complex_meal_id=new_meal.meal_id
+                                    )
+                                    session.add(new_food)
+                                    session.flush()
+                                    meal_food_id = new_food.food_id
+                                else:
+                                    meal_food_id = existing_food.food_id
+                                
+                                # 4. Создаем запись в дневнике питания
+                                new_log = FoodLog(
+                                    user_id=current_user.user_id,
+                                    food_id=meal_food_id,
+                                    date=meal_date,
+                                    meal_type=meal_type,
+                                    weight_eaten=totals['weight']
+                                )
+                                session.add(new_log)
+                                
                                 session.commit()
                                 st.session_state.recipe_components = []
-                                st.success(f"🎉 Блюдо '{dish_name}' сохранено! Итого: {totals['calories']:.0f} ккал, Б:{totals['protein']:.1f} Ж:{totals['fat']:.1f} У:{totals['carbs']:.1f}")
+                                st.success(f"🎉 Блюдо '{dish_name}' сохранено и добавлено в дневник! Итого: {totals['calories']:.0f} ккал, Б:{totals['protein']:.1f} Ж:{totals['fat']:.1f} У:{totals['carbs']:.1f}")
                                 st.balloons()
                                 st.rerun()
                 else:
                     st.info("👆 Сначала добавь хотя бы один ингредиент в список выше, чтобы сохранить блюдо.")    
                 st.markdown("---")
                 
-                # ====== ДНЕВНИК ЗА ВЫБРАННУЮ ДАТУ ======
+                # =========================================================================
+                # ДНЕВНИК ЗА ВЫБРАННУЮ ДАТУ
+                # =========================================================================
+                st.markdown("---")
                 st.subheader(f"📋 Дневник за {selected_date.strftime('%d.%m.%Y')}")
                 
                 day_logs = session.query(FoodLog).filter(
@@ -929,7 +968,7 @@ else:
                         meals_grouped[log.meal_type].append(log)
                     
                     meal_names = {
-                        'breakfast': '🌅 Завтрак',
+                        'breakfast': ' Завтрак',
                         'lunch': '☀️ Обед',
                         'dinner': '🌙 Ужин',
                         'snack': '🍪 Перекусы'
@@ -945,8 +984,29 @@ else:
                                 col1, col2, col3 = st.columns([3, 2, 1])
                                 
                                 with col1:
-                                    st.write(f"**{log.food.name}** — {log.weight_eaten}г")
-                                    st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
+                                    # Проверяем, является ли продукт сложным блюдом
+                                    if log.food.is_complex_meal and log.food.complex_meal_id:
+                                        complex_meal = session.query(ComplexMeal).filter(
+                                            ComplexMeal.meal_id == log.food.complex_meal_id
+                                        ).first()
+                                        
+                                        if complex_meal:
+                                            st.write(f"**{log.food.name}** — {log.weight_eaten}г")
+                                            st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
+                                            
+                                            # Раскрывающийся список с ингредиентами
+                                            with st.expander("📝 Состав блюда"):
+                                                for comp in complex_meal.components:
+                                                    ingredient = session.query(Food).filter(Food.food_id == comp.food_id).first()
+                                                    if ingredient:
+                                                        time_str = f", {int(comp.cooking_time)} мин" if comp.cooking_time else ""
+                                                        st.write(f"• {ingredient.name}: {comp.weight}г ({comp.cooking_method}{time_str})")
+                                        else:
+                                            st.write(f"**{log.food.name}** — {log.weight_eaten}г")
+                                            st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
+                                    else:
+                                        st.write(f"**{log.food.name}** — {log.weight_eaten}г")
+                                        st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
                                 
                                 with col2:
                                     st.write(f"**{macros['calories']:.0f} ккал**")
@@ -965,7 +1025,7 @@ else:
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric(" Калории", f"{totals['calories']:.0f} ккал")
+                        st.metric("🔥 Калории", f"{totals['calories']:.0f} ккал")
                     with col2:
                         st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
                     with col3:
@@ -1195,7 +1255,7 @@ else:
                                     key=f"med_{category}_{name}_{test_date}"
                                 )
                     
-                    submit_med = st.form_submit_button("💾 Сохранить результаты анализов", type="primary", use_container_width=True)
+                    submit_med = st.form_submit_button("💾 Сохранить результаты анализов", type="primary", width='stretch')
                     
                     if submit_med:
                         saved_count = 0
@@ -1283,7 +1343,7 @@ else:
                                 template='plotly_white'
                             )
                             
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width='stretch')
                             
                             # Таблица с историей
                             import pandas as pd
@@ -1294,7 +1354,7 @@ else:
                             } for h in history])
                             
                             st.markdown("##### 📜 История значений:")
-                            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+                            st.dataframe(df_hist, width='stretch', hide_index=True)
                         else:
                             st.info("Недостаточно данных для построения графика.")
                 else:

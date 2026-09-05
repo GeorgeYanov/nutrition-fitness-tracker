@@ -200,11 +200,16 @@ class Food(Base):
     __tablename__ = 'foods'
     
     food_id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=True)  # NULL для системных продуктов
     name = Column(String(200), nullable=False)
     calories_per_100g = Column(Float, nullable=False)
     protein_per_100g = Column(Float, nullable=False)
     fat_per_100g = Column(Float, nullable=False)
     carbs_per_100g = Column(Float, nullable=False)
+    
+    # Флаг и ссылка на сложное блюдо
+    is_complex_meal = Column(Boolean, default=False)
+    complex_meal_id = Column(Integer, ForeignKey('complex_meals.meal_id'), nullable=True)
     
     # Микронутриенты (все на 100г)
     vitamin_a = Column(Float)
@@ -225,6 +230,7 @@ class Food(Base):
     alcohol = Column(Float)
     
     logs = relationship('FoodLog', back_populates='food', cascade='all, delete-orphan')
+    complex_meal = relationship('ComplexMeal', back_populates='food')
 
 
 class FoodLog(Base):
@@ -289,10 +295,9 @@ class ComplexMeal(Base):
     meal_id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
     date = Column(Date, nullable=False)
-    meal_type = Column(String(20), nullable=False) # breakfast, lunch, dinner, snack
-    dish_name = Column(String(200), nullable=False) # Например, "Гречка с курицей"
+    meal_type = Column(String(20), nullable=False)
+    dish_name = Column(String(200), nullable=False)
     
-    # Суммарные значения (рассчитываются при сохранении)
     total_weight = Column(Float)
     total_calories = Column(Float)
     total_protein = Column(Float)
@@ -300,6 +305,7 @@ class ComplexMeal(Base):
     total_carbs = Column(Float)
     
     components = relationship('ComplexMealComponent', back_populates='meal', cascade='all, delete-orphan')
+    food = relationship('Food', back_populates='complex_meal', uselist=False)  # НОВАЯ СВЯЗЬ
     user = relationship('User', back_populates='complex_meals')
 
 
