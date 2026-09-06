@@ -2,6 +2,7 @@
 Модуль для расчетов калорий, макросов и прогресса
 """
 from datetime import date
+import random
 
 def adjust_nutrients_for_cooking(food, method, time_minutes):
     """
@@ -246,12 +247,17 @@ def calculate_complex_meal_totals(components_data, foods_dict):
     }
     
     for comp in components_data:
-        food = foods_dict.get(comp['food_name'])
+        # ✅ ИСПРАВЛЕНИЕ: Ищем 'food_name', а если его нет (как в генераторе), берем 'name'
+        f_name = comp.get('food_name') or comp.get('name')
+        food = foods_dict.get(f_name)
+        
         if not food:
             continue
             
-        # 1. Получаем скорректированные нутриенты на 100г
-        adj = adjust_nutrients_for_cooking(food, comp['method'], comp['time'])
+        # 1. Получаем скорректированные нутриенты на 100г (с защитой от отсутствия ключей)
+        method = comp.get('method', 'Без обработки')
+        time = comp.get('time', 0)
+        adj = adjust_nutrients_for_cooking(food, method, time)
         
         # 2. Рассчитываем вклад этого компонента с учетом его веса
         multiplier = comp['weight'] / 100.0
@@ -300,3 +306,109 @@ def get_standard_micro_goals(gender, weight):
     multiplier = 1.0 + max(0, (weight - 70) * 0.01)
     
     return {k: round(v * multiplier) for k, v in goals.items()}
+
+def generate_daily_plan(target_calories, target_protein, target_fat, target_carbs, user_allergen_names, base_foods, custom_foods):
+    """
+    Генерирует план питания на день, стремясь к целевым калориям и учитывая аллергии.
+    """
+    # Если цели не заданы, берем дефолт
+    daily_cal = target_calories if target_calories else 2000
+    
+    # 1. Объединяем и фильтруем продукты по аллергиям
+    all_foods = base_foods + custom_foods
+    
+    # Простая карта аллергенов к категориям/словам
+    allergen_map = {
+        'milk': ['dairy', 'молоко', 'творог', 'сыр', 'кефир', 'сливки'],
+        'dairy': ['dairy', 'молоко', 'творог', 'сыр', 'кефир'],
+        'gluten': ['bakery', 'grains', 'пшеница', 'хлеб', 'макароны', 'овсянка'],
+        'wheat': ['bakery', 'grains', 'пшеница', 'хлеб'],
+        'nuts': ['nuts', 'орех', 'миндаль', 'кешью'],
+        'peanuts': ['nuts', 'арахис'],
+        'eggs': ['eggs', 'яйц', 'омлет'],
+        'soy': ['legumes', 'соя', 'тофу'],
+        'fish': ['fish', 'рыба', 'лосось', 'тунец', 'форель'],
+        'shellfish': ['fish', 'креветк', 'краб', 'мидии']
+    }
+    
+    safe_foods = []
+    for f in all_foods:
+        is_safe = True
+        f_cats = []
+        if hasattr(f, 'categories') and f.categories:
+            f_cats = [c.strip().lower() for c in f.categories.split(',')]
+        elif hasattr(f, 'category') and f.category:
+            f_cats = [f.category.lower()]
+            
+        f_name = f.name.lower()
+        
+        for allergen in user_allergen_names:
+            allergen = allergen.lower()
+            # Проверяем категории
+            if allergen in allergen_map:
+                for keyword in allergen_map[allergen]:
+                    if keyword in f_cats or keyword in f_name:
+                        is_safe = False
+                        break
+            # Прямое совпадение
+            if allergen in f_cats or allergen in f_name:
+                is_safe = False
+        if is_safe:
+            safe_foods.append(f)
+
+    if not safe_foods:
+        return {'error': 'Не найдено безопасных продуктов. Проверьте аллергии.'}
+
+    # 2. Распределяем калории (30% / 40% / 30%)
+    meal_targets = {
+        'breakfast': daily_cal * 0.30,
+        'lunch': daily_cal * 0.40,
+        'dinner': daily_cal * 0.30
+    }
+    
+    plan = {}
+    
+    for meal_type, cal_target in meal_targets.items():
+        # Ищем готовые блюда
+        ready_meals = [f for f in safe_foods if not getattr(f, 'is_basic', True)]
+        
+        if ready_meals and random.random() > 0.3: # 70% шанс выбрать готовое блюдо, если есть
+            chosen = random.choice(ready_meals)
+            weight = (cal_target / chosen.calories_per_100g * 100) if chosen.calories_per_100g > 0 else 250
+            plan[meal_type] = [{
+                'name': chosen.name, 
+                'weight': round(weight), 
+                'method': 'Без обработки', 
+                'time': 0,
+                'is_ready_meal': True
+            }]
+        else:
+            # Конструируем из базовых ингредиентов
+            proteins = [f for f in safe_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['meat', 'fish', 'eggs', 'dairy']]
+            carbs = [f for f in safe_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['grains', 'vegetables', 'bakery']]
+            
+            # Фоллбэк, если категорий нет
+            if not proteins: proteins = [f for f in safe_foods if getattr(f, 'is_basic', True)]
+            if not carbs: carbs = proteins 
+            
+            p = random.choice(proteins) if proteins else None
+            c = random.choice(carbs) if carbs else None
+            
+            components = []
+            # Базовые порции для расчета масштаба
+            w_p, w_c = 150, 200 
+            base_cals = 0
+            if p: base_cals += p.calories_per_100g * w_p / 100
+            if c: base_cals += c.calories_per_100g * w_c / 100
+            
+            if base_cals > 0:
+                scale = cal_target / base_cals
+                w_p = int(w_p * scale)
+                w_c = int(w_c * scale)
+            
+            if p: components.append({'name': p.name, 'weight': w_p, 'method': 'Запекание', 'time': 20})
+            if c: components.append({'name': c.name, 'weight': w_c, 'method': 'Варка', 'time': 15})
+            
+            plan[meal_type] = components
+
+    return plan

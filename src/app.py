@@ -11,10 +11,10 @@ from database import (
 )
 from foods_database import get_all_foods, get_food_by_name, FoodItem, get_all_categories, get_food_categories, get_foods_by_category, FoodCategory
 from calculations import (
-        calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
-        calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
-        calculate_complex_meal_totals, get_standard_micro_goals
-    )
+       calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
+       calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
+       calculate_complex_meal_totals, get_standard_micro_goals, generate_daily_plan
+   )
 from auth import register_user, authenticate_user
 
 def get_display_categories(food_obj):
@@ -1860,28 +1860,60 @@ else:
                     # Визуальное выделение текущего дня с помощью рамки (border)
                     with st.container(border=is_today):
                         if is_today:
-                            st.markdown(f"### <span style='color:#1f77b4; font-weight:bold;'>{d_name}</span>", unsafe_allow_html=True)
-                            st.markdown(f"**{d_date.strftime('%d.%m')}** *(Сегодня)*")
+                            # Получаем цели пользователя
+                            user_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                            
+                            # Получаем аллергии пользователя (список имен)
+                            user_allergies_objs = session.query(UserAllergy).filter(UserAllergy.user_id == current_user.user_id).all()
+                            user_allergen_names = []
+                            for ua in user_allergies_objs:
+                                allergen = session.query(Allergen).filter(Allergen.allergen_id == ua.allergen_id).first()
+                                if allergen:
+                                    user_allergen_names.append(allergen.name)
+                            
+                            # Генерируем план!
+                            daily_plan = generate_daily_plan(
+                                user_goal.target_calories if user_goal else 2000,
+                                user_goal.target_protein if user_goal else 150,
+                                user_goal.target_fat if user_goal else 70,
+                                user_goal.target_carbs if user_goal else 250,
+                                user_allergen_names,
+                                get_all_foods(),
+                                session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
+                            )
+                            
+                            if 'error' in daily_plan:
+                                st.error(daily_plan['error'])
+                            else:
+                                # Отображаем приемы пищи
+                                meal_icons = {'breakfast': '🌅', 'lunch': '☀️', 'dinner': '🌙'}
+                                meal_names_ru = {'breakfast': 'Завтрак', 'lunch': 'Обед', 'dinner': 'Ужин'}
+                                
+                                for m_type in ['breakfast', 'lunch', 'dinner']:
+                                    st.markdown(f"##### {meal_icons[m_type]} {meal_names_ru[m_type]}")
+                                    components = daily_plan.get(m_type, [])
+                                    
+                                    if components:
+                                        # Считаем итоги для этого приема пищи
+                                        foods_dict = {f.name: f for f in get_all_foods()}
+                                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                                            foods_dict[f.name] = f
+                                            
+                                        totals = calculate_complex_meal_totals(components, foods_dict)
+                                        
+                                        with st.expander(f"Состав (~{totals['calories']:.0f} ккал)", expanded=True):
+                                            for comp in components:
+                                                time_str = f", {comp['time']} мин" if comp.get('time', 0) > 0 else ""
+                                                st.write(f"• **{comp['name']}**: {comp['weight']}г ({comp['method']}{time_str})")
+                                    else:
+                                        st.caption("Нет подходящих вариантов")
+                                    
+                                    st.markdown("") # Отступ
                         else:
                             st.markdown(f"**{d_name}**")
                             st.markdown(f"{d_date.strftime('%d.%m')}")
                         
                         st.divider()
                         
-                        # 5. Плейсхолдеры для приемов пищи
-                        # Для текущего дня они более детальные, для остальных - свернутые или краткие
-                        if is_today:
-                            st.markdown("##### 🌅 Завтрак")
-                            st.info("🔄 Здесь генератор предложит варианты завтрака")
-                            
-                            st.markdown("##### ☀️ Обед")
-                            st.info("🔄 Здесь генератор предложит варианты обеда")
-                            
-                            st.markdown("##### 🌙 Ужин")
-                            st.info("🔄 Здесь генератор предложит варианты ужина")
-                        else:
-                            # Для будущих дней пока просто заглушка, чтобы не загромождать UI
-                            st.markdown("📝 *План на день пока пуст*")
-                            st.button("Сгенерировать", key=f"gen_{i}", disabled=True, use_container_width=True)
         # Закрываем сессию
     session.close()
