@@ -310,6 +310,21 @@ class CustomFood(Base):
     iodine = Column(Float)
     selenium = Column(Float)
 
+class GeneratedPlan(Base):
+    """Сохраненный сгенерированный рацион на конкретный день"""
+    __tablename__ = 'generated_plans'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    date = Column(Date, nullable=False, unique=True) # Уникален для одного пользователя в один день
+    
+    # Храним компоненты каждого приема пищи как JSON-строки
+    breakfast_json = Column(String)
+    lunch_json = Column(String)
+    dinner_json = Column(String)
+    
+    user = relationship('User', backref='generated_plans')
+
 # ============================================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ
 # ============================================================================

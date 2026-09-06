@@ -2,12 +2,13 @@
 Главный файл приложения - интерфейс на Streamlit с авторизацией
 """
 import streamlit as st
+import json
 from datetime import date, timedelta
 import pandas as pd
 from database import (
     get_session, User, Exercise, FoodLog, Workout, WorkoutLog, 
     UserMeasurement, UserGoal, MedicalResult, ComplexMeal, 
-    ComplexMealComponent, Allergen, UserAllergy, CustomFood
+    ComplexMealComponent, Allergen, UserAllergy, CustomFood, GeneratedPlan # <-- ДОБАВИЛИ GeneratedPlan
 )
 from foods_database import get_all_foods, get_food_by_name, FoodItem, get_all_categories, get_food_categories, get_foods_by_category, FoodCategory
 from calculations import (
@@ -1833,87 +1834,107 @@ else:
         # =========================================================================
         elif page == "📅 Мой календарь":
             st.header("📅 Мой календарь питания")
-            st.caption("План на текущую неделю. Текущий день выделен для детального просмотра.")
+            st.caption("План на текущую неделю. Рацион сохраняется и не меняется при переключении вкладок.")
             
-            # 1. Вычисляем даты текущей недели (Понедельник = 0, Воскресенье = 6)
             today = date.today()
             start_of_week = today - timedelta(days=today.weekday())
             week_dates = [start_of_week + timedelta(days=i) for i in range(7)]
+            day_names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
             
-            day_names = [
-                "Понедельник", "Вторник", "Среда", "Четверг", 
-                "Пятница", "Суббота", "Воскресенье"
-            ]
-            
-            # 2. Создаем адаптивные пропорции для колонок
-            # Текущий день получает ширину 3 (или 4), остальные дни - ширину 1
             col_widths = [3 if i == today.weekday() else 1 for i in range(7)]
-            
-            # 3. Генерируем колонки
             cols = st.columns(col_widths)
             
-            # 4. Заполняем каждую колонку
+            # Вспомогательная функция для отображения плана
+            def display_plan(plan_data, is_today_day):
+                meal_icons = {'breakfast': '🌅', 'lunch': '☀️', 'dinner': '🌙'}
+                meal_names_ru = {'breakfast': 'Завтрак', 'lunch': 'Обед', 'dinner': 'Ужин'}
+                
+                for m_type in ['breakfast', 'lunch', 'dinner']:
+                    st.markdown(f"##### {meal_icons[m_type]} {meal_names_ru[m_type]}")
+                    components = plan_data.get(m_type, [])
+                    
+                    if components:
+                        # Для сегодняшнего дня раскрываем по умолчанию, для прошлых - свернуто
+                        with st.expander(f"Состав", expanded=is_today_day):
+                            for comp in components:
+                                time_str = f", {comp.get('time', 0)} мин" if comp.get('time', 0) > 0 else ""
+                                st.write(f"• **{comp['name']}**: {comp['weight']}г ({comp['method']}{time_str})")
+                    else:
+                        st.caption("Нет вариантов")
+                    st.markdown("")
+
             for i, (col, d_date, d_name) in enumerate(zip(cols, week_dates, day_names)):
                 with col:
                     is_today = (i == today.weekday())
                     
-                    # Визуальное выделение текущего дня с помощью рамки (border)
                     with st.container(border=is_today):
                         if is_today:
-                            # Получаем цели пользователя
-                            user_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
-                            
-                            # Получаем аллергии пользователя (список имен)
-                            user_allergies_objs = session.query(UserAllergy).filter(UserAllergy.user_id == current_user.user_id).all()
-                            user_allergen_names = []
-                            for ua in user_allergies_objs:
-                                allergen = session.query(Allergen).filter(Allergen.allergen_id == ua.allergen_id).first()
-                                if allergen:
-                                    user_allergen_names.append(allergen.name)
-                            
-                            # Генерируем план!
-                            daily_plan = generate_daily_plan(
-                                user_goal.target_calories if user_goal else 2000,
-                                user_goal.target_protein if user_goal else 150,
-                                user_goal.target_fat if user_goal else 70,
-                                user_goal.target_carbs if user_goal else 250,
-                                user_allergen_names,
-                                get_all_foods(),
-                                session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
-                            )
-                            
-                            if 'error' in daily_plan:
-                                st.error(daily_plan['error'])
-                            else:
-                                # Отображаем приемы пищи
-                                meal_icons = {'breakfast': '🌅', 'lunch': '☀️', 'dinner': '🌙'}
-                                meal_names_ru = {'breakfast': 'Завтрак', 'lunch': 'Обед', 'dinner': 'Ужин'}
-                                
-                                for m_type in ['breakfast', 'lunch', 'dinner']:
-                                    st.markdown(f"##### {meal_icons[m_type]} {meal_names_ru[m_type]}")
-                                    components = daily_plan.get(m_type, [])
-                                    
-                                    if components:
-                                        # Считаем итоги для этого приема пищи
-                                        foods_dict = {f.name: f for f in get_all_foods()}
-                                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
-                                            foods_dict[f.name] = f
-                                            
-                                        totals = calculate_complex_meal_totals(components, foods_dict)
-                                        
-                                        with st.expander(f"Состав (~{totals['calories']:.0f} ккал)", expanded=True):
-                                            for comp in components:
-                                                time_str = f", {comp['time']} мин" if comp.get('time', 0) > 0 else ""
-                                                st.write(f"• **{comp['name']}**: {comp['weight']}г ({comp['method']}{time_str})")
-                                    else:
-                                        st.caption("Нет подходящих вариантов")
-                                    
-                                    st.markdown("") # Отступ
+                            st.subheader(f"📅 {d_name}, {d_date.strftime('%d.%m')}")
+                            st.markdown("📍 **Сегодня**")
                         else:
                             st.markdown(f"**{d_name}**")
                             st.markdown(f"{d_date.strftime('%d.%m')}")
                         
                         st.divider()
+                        
+                        # 1. Проверяем, есть ли уже сохраненный план на эту дату
+                        existing_plan = session.query(GeneratedPlan).filter(
+                            GeneratedPlan.user_id == current_user.user_id,
+                            GeneratedPlan.date == d_date
+                        ).first()
+                        
+                        if existing_plan:
+                            st.success("✅ Рацион сохранен")
+                            if st.button("🔄 Сгенерировать заново", key=f"regen_{d_date}", use_container_width=True):
+                                session.delete(existing_plan)
+                                session.commit()
+                                st.rerun()
+                            
+                            # Загружаем и отображаем
+                            plan_data = {
+                                'breakfast': json.loads(existing_plan.breakfast_json) if existing_plan.breakfast_json else [],
+                                'lunch': json.loads(existing_plan.lunch_json) if existing_plan.lunch_json else [],
+                                'dinner': json.loads(existing_plan.dinner_json) if existing_plan.dinner_json else []
+                            }
+                            display_plan(plan_data, is_today)
+                            
+                        else:
+                            st.info("📝 Рацион еще не составлен")
+                            if st.button("✨ Сгенерировать рацион", key=f"gen_{d_date}", use_container_width=True, type="primary"):
+                                with st.spinner("Подбираем лучшие блюда с учетом ваших целей и аллергий..."):
+                                    user_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                                    
+                                    user_allergies_objs = session.query(UserAllergy).filter(UserAllergy.user_id == current_user.user_id).all()
+                                    user_allergen_names = []
+                                    for ua in user_allergies_objs:
+                                        allergen = session.query(Allergen).filter(Allergen.allergen_id == ua.allergen_id).first()
+                                        if allergen:
+                                            user_allergen_names.append(allergen.name)
+                                    
+                                    new_plan = generate_daily_plan(
+                                        user_goal.target_calories if user_goal else 2000,
+                                        user_goal.target_protein if user_goal else 150,
+                                        user_goal.target_fat if user_goal else 70,
+                                        user_goal.target_carbs if user_goal else 250,
+                                        user_allergen_names,
+                                        get_all_foods(),
+                                        session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
+                                    )
+                                    
+                                    if 'error' in new_plan:
+                                        st.error(new_plan['error'])
+                                    else:
+                                        # Сохраняем в базу!
+                                        new_record = GeneratedPlan(
+                                            user_id=current_user.user_id,
+                                            date=d_date,
+                                            breakfast_json=json.dumps(new_plan.get('breakfast', [])),
+                                            lunch_json=json.dumps(new_plan.get('lunch', [])),
+                                            dinner_json=json.dumps(new_plan.get('dinner', []))
+                                        )
+                                        session.add(new_record)
+                                        session.commit()
+                                        st.rerun()
                         
         # Закрываем сессию
     session.close()
