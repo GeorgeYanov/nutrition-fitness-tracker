@@ -532,7 +532,53 @@ else:
         # =========================================================================
         elif page == "🥗 Моя еда":
             st.header("🥗 Справочник моей еды")
-            st.info("💡 Здесь отображаются все продукты, которые ты добавил вручную. Они сохраняются навсегда.")
+            
+            # Получаем все продукты
+            base_foods = get_all_foods()
+            custom_foods = session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
+            all_foods = base_foods + custom_foods
+            
+            if all_foods:
+                import pandas as pd
+                
+                # Разделяем на две группы
+                basic_foods = [f for f in all_foods if getattr(f, 'is_basic', True)]
+                prepared_foods = [f for f in all_foods if not getattr(f, 'is_basic', True)]
+                
+                tab1, tab2 = st.tabs(["🥬 Базовые продукты", "🍲 Готовые блюда"])
+                
+                # Вспомогательная функция для рендера таблицы
+                def render_food_table(foods_list, title):
+                    if not foods_list:
+                        st.info(f"📭 В категории '{title}' пока нет продуктов.")
+                        return
+                    
+                    data_macros = []
+                    for f in foods_list:
+                        categories = get_food_categories(f.food_id) if hasattr(f, 'food_id') else []
+                        cat_display = ", ".join([f"{c.icon} {c.display_name}" for c in categories]) if categories else "Без категории"
+                        
+                        data_macros.append({
+                            "Название": f.name,
+                            "Категории": cat_display,
+                            "Ккал": f.calories_per_100g,
+                            "Белки": f.protein_per_100g,
+                            "Жиры": f.fat_per_100g,
+                            "Углеводы": f.carbs_per_100g,
+                        })
+                    
+                    df = pd.DataFrame(data_macros)
+                    st.dataframe(df, width='stretch', hide_index=True)
+
+                with tab1:
+                    st.subheader("Ингредиенты для готовки")
+                    render_food_table(basic_foods, "Базовые продукты")
+                
+                with tab2:
+                    st.subheader("Сложные блюда и рецепты")
+                    render_food_table(prepared_foods, "Готовые блюда")
+                
+                st.markdown("---")
             
             foods = get_all_foods()
             food_options = {f.name: f for f in foods}
@@ -646,13 +692,28 @@ else:
                 # =========================================================================
                 # 1. СЕЛЕКТОР ПРОДУКТА (СНАРУЖИ ФОРМЫ - для мгновенного обновления UI)
                 # =========================================================================
-                foods = get_all_foods()
-                food_options = {f.name: f for f in foods}
                 
+                show_only_basic = st.checkbox("🥬 Показывать только базовые продукты (ингредиенты)", value=True, key="filter_basic_add_meal")
+                
+                # Собираем доступные продукты
+                available_foods = []
+                for f in get_all_foods():
+                    if not show_only_basic or getattr(f, 'is_basic', True):
+                        available_foods.append(f)
+                
+                for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                    if not show_only_basic or getattr(f, 'is_basic', True):
+                        available_foods.append(f)
+                
+                # Сортируем по имени
+                available_foods.sort(key=lambda x: x.name)
+                food_options = {f.name: f for f in available_foods}
+                
+                # ЕДИНСТВЕННЫЙ selectbox с этим ключом во всем файле!
                 food_choice = st.selectbox(
                     "Выбери продукт:",
                     options=["🔍 Другое (добавить свой)"] + list(food_options.keys()),
-                    key="simple_food_choice_selector" # Уникальный ключ с префиксом
+                    key="simple_food_choice_selector"
                 )
 
                 # =========================================================================
@@ -850,9 +911,19 @@ else:
                 st.markdown("##### ➕ Добавить новый ингредиент")
                 col_add1, col_add2, col_add3, col_add4 = st.columns([3, 1, 2, 2])
                 with col_add1:
-                    foods = get_all_foods()
-                    food_options = {f.name: f for f in foods}
-                    new_comp_food = st.selectbox("Продукт из справочника:", list(food_options.keys()), key="new_comp_food_select")
+                    # ЖЕСТКАЯ ФИЛЬТРАЦИЯ: только is_basic == True
+                    basic_foods_only = []
+                    for f in get_all_foods():
+                        if f.is_basic:
+                            basic_foods_only.append(f)
+                    for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                        if getattr(f, 'is_basic', True):
+                            basic_foods_only.append(f)
+                    
+                    basic_foods_only.sort(key=lambda x: x.name)
+                    food_options_builder = {f.name: f for f in basic_foods_only}
+                    
+                    new_comp_food = st.selectbox("Продукт из справочника:", list(food_options_builder.keys()), key="new_comp_food_select")
                 with col_add2:
                     new_comp_weight = st.number_input("Вес (г)", min_value=1, value=100, step=10, key="new_comp_weight")
                 with col_add3:
@@ -890,7 +961,26 @@ else:
                             meal_type = st.selectbox("Прием пищи:", ["breakfast", "lunch", "dinner", "snack"], format_func=lambda x: {"breakfast": " Завтрак", "lunch": "️ Обед", "dinner": " Ужин", "snack": "🍪 Перекус"}[x])
                         
                         meal_date = st.date_input("Дата приготовления:", value=date.today())
+                        st.caption("Приложение автоматически корректирует витамины и минералы в зависимости от времени и способа приготовления (например, вымывание при варке или впитывание масла при жарке).")
+                
+                        # Показываем итог прямо перед сохранением
+                        foods_dict = {}
+                        for f in get_all_foods():
+                            foods_dict[f.name] = f
+                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                            foods_dict[f.name] = f
+                            
+                        preview_totals = calculate_complex_meal_totals(st.session_state.recipe_components, foods_dict)
                         
+                        col_p1, col_p2, col_p3 = st.columns(3)
+                        with col_p1:
+                            st.metric("🔥 Итого ккал", f"{preview_totals['calories']:.0f}")
+                        with col_p2:
+                            st.metric("🥩 Белки", f"{preview_totals['protein']:.1f} г")
+                        with col_p3:
+                            st.metric("🥑 Жиры", f"{preview_totals['fat']:.1f} г")
+                        
+                        st.markdown("---")
                         st.info(f"В блюдо будет добавлено ингредиентов: **{len(st.session_state.recipe_components)}**")
                         
                         submit_dish = st.form_submit_button("💾 Сохранить сложное блюдо в дневник", type="primary", width='stretch')

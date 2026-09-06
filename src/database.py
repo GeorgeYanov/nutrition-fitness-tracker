@@ -292,7 +292,8 @@ class CustomFood(Base):
     protein_per_100g = Column(Float, nullable=False)
     fat_per_100g = Column(Float, nullable=False)
     carbs_per_100g = Column(Float, nullable=False)
-    
+
+    is_basic = Column(Boolean, default=True)
     is_complex_meal = Column(Boolean, default=False)
     complex_meal_id = Column(Integer, nullable=True)
     

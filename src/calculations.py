@@ -3,6 +3,71 @@
 """
 from datetime import date
 
+def adjust_nutrients_for_cooking(food, method, time_minutes):
+    """
+    Корректирует нутриенты продукта с учетом способа и времени приготовления.
+    Возвращает словарь с обновленными значениями на 100г.
+    """
+    # Базовые значения (защищаемся от None, заменяя на 0)
+    adj = {
+        'protein': getattr(food, 'protein_per_100g', 0) or 0,
+        'fat': getattr(food, 'fat_per_100g', 0) or 0,
+        'carbs': getattr(food, 'carbs_per_100g', 0) or 0,
+        'vit_c': getattr(food, 'vitamin_c', 0) or 0,
+        'vit_b': getattr(food, 'vitamin_b_complex', 0) or 0,
+        'iron': getattr(food, 'iron', 0) or 0,
+        'calcium': getattr(food, 'calcium', 0) or 0,
+        'magnesium': getattr(food, 'magnesium', 0) or 0,
+        'zinc': getattr(food, 'zinc', 0) or 0,
+        'iodine': getattr(food, 'iodine', 0) or 0,
+        'selenium': getattr(food, 'selenium', 0) or 0,
+    }
+
+    time = max(0, time_minutes or 0) # Защита от отрицательного времени
+
+    if method == "Варка":
+        # Вымывание водорастворимых витаминов и минералов в воду
+        adj['vit_c'] *= (1 - 0.02 * time)   # -2% в минуту
+        adj['vit_b'] *= (1 - 0.01 * time)   # -1% в минуту
+        # Минералы вымываются медленнее
+        for mineral in ['iron', 'calcium', 'magnesium', 'zinc', 'iodine', 'selenium']:
+            adj[mineral] *= (1 - 0.005 * time) # -0.5% в минуту
+        adj['protein'] *= (1 - 0.002 * time)  # Небольшая потеря белка
+
+    elif method == "Жарка":
+        # Впитывание масла (примерно +0.5г жира каждые 5 минут жарки)
+        adj['fat'] += (0.5 * (time / 5))
+        # Высокая температура разрушает витамины
+        adj['vit_c'] *= (1 - 0.03 * time)   # -3% в минуту
+        adj['vit_b'] *= (1 - 0.015 * time)  # -1.5% в минуту
+
+    elif method == "Тушение":
+        # Умеренный нагрев, частичное вымывание в соус
+        adj['vit_c'] *= (1 - 0.015 * time)
+        adj['vit_b'] *= (1 - 0.008 * time)
+        adj['fat'] += (0.2 * (time / 5)) # Небольшое добавление жира (если тушим с маслом)
+
+    elif method in ["Запекание", "Гриль"]:
+        # Сухой жар, минералы сохраняются, витамины разрушаются умеренно
+        adj['vit_c'] *= (1 - 0.01 * time)
+        adj['vit_b'] *= (1 - 0.005 * time)
+        adj['fat'] += (0.1 * (time / 5)) # Минимальное впитывание жира/потеря собственного
+
+    elif method == "На пару":
+        # Самый щадящий метод
+        adj['vit_c'] *= (1 - 0.005 * time)
+        adj['vit_b'] *= (1 - 0.003 * time)
+
+    # "Без обработки" или неизвестный метод: коэффициенты = 1.0 (ничего не меняем)
+
+    # ⚠️ ВАЖНО: Пересчитываем калорийность на основе новых макросов (формула 4-9-4)
+    adj['calories'] = (adj['protein'] * 4) + (adj['fat'] * 9) + (adj['carbs'] * 4)
+
+    # Остальные витамины (A, D, E, K) относительно стабильны, их не трогаем для простоты MVP,
+    # но при желании можно добавить им небольшой коэффициент разрушения при "Жарке".
+
+    return adj
+
 def calculate_age(birth_date):
     """Рассчитывает точный возраст в годах"""
     today = date.today()
@@ -165,19 +230,47 @@ def calculate_macro_goals(current_weight, target_weight, height, age, gender, ac
     }
 
 def calculate_complex_meal_totals(components_data, foods_dict):
-    """Рассчитывает итоги сложного блюда. foods_dict теперь ключуется по ИМЕНИ продукта"""
-    totals = {'weight': 0.0, 'calories': 0.0, 'protein': 0.0, 'fat': 0.0, 'carbs': 0.0}
+    """
+    Рассчитывает итоговые КБЖУ и микронутриенты сложного блюда, 
+    учитывая корректировки от способа и времени приготовления каждого компонента.
+    """
+    totals = {
+        'weight': 0.0,
+        'calories': 0.0,
+        'protein': 0.0,
+        'fat': 0.0,
+        'carbs': 0.0,
+        'vit_c': 0.0, 'vit_b': 0.0,
+        'iron': 0.0, 'calcium': 0.0, 'magnesium': 0.0, 
+        'zinc': 0.0, 'iodine': 0.0, 'selenium': 0.0
+    }
     
     for comp in components_data:
-        food = foods_dict.get(comp['food_name']) # Ищем по имени!
-        if food:
-            multiplier = comp['weight'] / 100.0
-            totals['weight'] += comp['weight']
-            totals['calories'] += (getattr(food, 'calories_per_100g', 0) or 0) * multiplier
-            totals['protein'] += (getattr(food, 'protein_per_100g', 0) or 0) * multiplier
-            totals['fat'] += (getattr(food, 'fat_per_100g', 0) or 0) * multiplier
-            totals['carbs'] += (getattr(food, 'carbs_per_100g', 0) or 0) * multiplier
+        food = foods_dict.get(comp['food_name'])
+        if not food:
+            continue
             
+        # 1. Получаем скорректированные нутриенты на 100г
+        adj = adjust_nutrients_for_cooking(food, comp['method'], comp['time'])
+        
+        # 2. Рассчитываем вклад этого компонента с учетом его веса
+        multiplier = comp['weight'] / 100.0
+        
+        totals['weight'] += comp['weight']
+        totals['calories'] += adj['calories'] * multiplier
+        totals['protein'] += adj['protein'] * multiplier
+        totals['fat'] += adj['fat'] * multiplier
+        totals['carbs'] += adj['carbs'] * multiplier
+        
+        totals['vit_c'] += adj['vit_c'] * multiplier
+        totals['vit_b'] += adj['vit_b'] * multiplier
+        totals['iron'] += adj['iron'] * multiplier
+        totals['calcium'] += adj['calcium'] * multiplier
+        totals['magnesium'] += adj['magnesium'] * multiplier
+        totals['zinc'] += adj['zinc'] * multiplier
+        totals['iodine'] += adj['iodine'] * multiplier
+        totals['selenium'] += adj['selenium'] * multiplier
+        
     return totals
 
 def get_standard_micro_goals(gender, weight):
