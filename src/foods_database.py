@@ -43,6 +43,7 @@ class FoodItem(FoodsBase):
     selenium = Column(Float)
     
     category = Column(String(50))  # Например: 'grains', 'meat', 'dairy'
+    serving_type = Column(String(100))
 
 class FoodCategory(FoodsBase):
     """Справочник категорий продуктов"""
@@ -76,53 +77,53 @@ def init_foods_db():
     if session.query(FoodItem).count() == 0:
         # Базовые продукты для старта
         basic_foods = [
-            # Крупы и злаки
-            FoodItem(name='Гречка вареная', calories_per_100g=110, protein_per_100g=4.5, fat_per_100g=1.7, carbs_per_100g=21.0, category='grains', is_basic=True),
-            FoodItem(name='Рис белый вареный', calories_per_100g=130, protein_per_100g=2.7, fat_per_100g=0.3, carbs_per_100g=28.0, category='grains', is_basic=True),
-            FoodItem(name='Овсянка на воде', calories_per_100g=88, protein_per_100g=3.0, fat_per_100g=1.7, carbs_per_100g=15.0, category='grains', is_basic=True),
-            FoodItem(name='Макароны вареные', calories_per_100g=131, protein_per_100g=5.0, fat_per_100g=1.1, carbs_per_100g=25.0, category='grains', is_basic=True),
+            # Крупы и злаки (основные блюда)
+            FoodItem(name='Гречка вареная', calories_per_100g=110, protein_per_100g=4.5, fat_per_100g=1.7, carbs_per_100g=21.0, category='grains', serving_type='main'),
+            FoodItem(name='Рис белый вареный', calories_per_100g=130, protein_per_100g=2.7, fat_per_100g=0.3, carbs_per_100g=28.0, category='grains', serving_type='main'),
+            FoodItem(name='Овсянка на воде', calories_per_100g=88, protein_per_100g=3.0, fat_per_100g=1.7, carbs_per_100g=15.0, category='grains', serving_type='main,breakfast'),
+            FoodItem(name='Макароны вареные', calories_per_100g=131, protein_per_100g=5.0, fat_per_100g=1.1, carbs_per_100g=25.0, category='grains', serving_type='main'),
             
-            # Мясо и птица
-            FoodItem(name='Куриная грудка вареная', calories_per_100g=165, protein_per_100g=31.0, fat_per_100g=3.6, carbs_per_100g=0.0, category='meat', is_basic=True),
-            FoodItem(name='Говядина вареная', calories_per_100g=250, protein_per_100g=26.0, fat_per_100g=15.0, carbs_per_100g=0.0, category='meat', is_basic=True),
-            FoodItem(name='Свинина нежирная', calories_per_100g=160, protein_per_100g=21.0, fat_per_100g=8.0, carbs_per_100g=0.0, category='meat', is_basic=True),
+            # Мясо и птица (вторые блюда)
+            FoodItem(name='Куриная грудка вареная', calories_per_100g=165, protein_per_100g=31.0, fat_per_100g=3.6, carbs_per_100g=0.0, category='meat', serving_type='second'),
+            FoodItem(name='Говядина вареная', calories_per_100g=250, protein_per_100g=26.0, fat_per_100g=15.0, carbs_per_100g=0.0, category='meat', serving_type='second'),
+            FoodItem(name='Свинина нежирная', calories_per_100g=160, protein_per_100g=21.0, fat_per_100g=8.0, carbs_per_100g=0.0, category='meat', serving_type='second'),
             
             # Рыба
-            FoodItem(name='Лосось запеченный', calories_per_100g=208, protein_per_100g=20.0, fat_per_100g=13.0, carbs_per_100g=0.0, category='fish', vitamin_d=11.0, iron=0.3, is_basic=True),
-            FoodItem(name='Тунец консервированный', calories_per_100g=116, protein_per_100g=26.0, fat_per_100g=1.0, carbs_per_100g=0.0, category='fish', is_basic=True),
+            FoodItem(name='Лосось запеченный', calories_per_100g=208, protein_per_100g=20.0, fat_per_100g=13.0, carbs_per_100g=0.0, category='fish', serving_type='second', vitamin_d=11.0, iron=0.3),
+            FoodItem(name='Тунец консервированный', calories_per_100g=116, protein_per_100g=26.0, fat_per_100g=1.0, carbs_per_100g=0.0, category='fish', serving_type='second'),
             
             # Молочные продукты
-            FoodItem(name='Творог 5%', calories_per_100g=121, protein_per_100g=17.0, fat_per_100g=5.0, carbs_per_100g=1.8, category='dairy', calcium=120, vitamin_b_complex=0.5, is_basic=True),
-            FoodItem(name='Молоко 2.5%', calories_per_100g=52, protein_per_100g=2.8, fat_per_100g=2.5, carbs_per_100g=4.7, category='dairy', calcium=120, is_basic=True),
-            FoodItem(name='Кефир 1%', calories_per_100g=40, protein_per_100g=3.0, fat_per_100g=1.0, carbs_per_100g=4.0, category='dairy', is_basic=True),
-            FoodItem(name='Сыр твердый', calories_per_100g=350, protein_per_100g=25.0, fat_per_100g=27.0, carbs_per_100g=2.0, category='dairy', calcium=700, is_basic=True),
+            FoodItem(name='Творог 5%', calories_per_100g=121, protein_per_100g=17.0, fat_per_100g=5.0, carbs_per_100g=1.8, category='dairy', serving_type='main,snack', calcium=120, vitamin_b_complex=0.5),
+            FoodItem(name='Молоко 2.5%', calories_per_100g=52, protein_per_100g=2.8, fat_per_100g=2.5, carbs_per_100g=4.7, category='dairy', serving_type='drink', calcium=120),
+            FoodItem(name='Кефир 1%', calories_per_100g=40, protein_per_100g=3.0, fat_per_100g=1.0, carbs_per_100g=4.0, category='dairy', serving_type='drink'),
+            FoodItem(name='Сыр твердый', calories_per_100g=350, protein_per_100g=25.0, fat_per_100g=27.0, carbs_per_100g=2.0, category='dairy', serving_type='snack', calcium=700),
             
             # Яйца
-            FoodItem(name='Яйцо куриное вареное', calories_per_100g=155, protein_per_100g=13.0, fat_per_100g=11.0, carbs_per_100g=1.1, category='eggs', vitamin_a=160, iron=1.2, is_basic=True),
+            FoodItem(name='Яйцо куриное вареное', calories_per_100g=155, protein_per_100g=13.0, fat_per_100g=11.0, carbs_per_100g=1.1, category='eggs', serving_type='main,breakfast', vitamin_a=160, iron=1.2),
             
             # Овощи
-            FoodItem(name='Огурцы свежие', calories_per_100g=15, protein_per_100g=0.8, fat_per_100g=0.1, carbs_per_100g=3.6, category='vegetables', vitamin_c=10, is_basic=True),
-            FoodItem(name='Помидоры свежие', calories_per_100g=18, protein_per_100g=0.9, fat_per_100g=0.2, carbs_per_100g=3.9, category='vegetables', vitamin_c=14, is_basic=True),
-            FoodItem(name='Морковь вареная', calories_per_100g=35, protein_per_100g=0.8, fat_per_100g=0.2, carbs_per_100g=8.0, category='vegetables', vitamin_a=850, is_basic=True),
-            FoodItem(name='Картофель вареный', calories_per_100g=82, protein_per_100g=2.0, fat_per_100g=0.4, carbs_per_100g=17.0, category='vegetables', is_basic=True),
+            FoodItem(name='Огурцы свежие', calories_per_100g=15, protein_per_100g=0.8, fat_per_100g=0.1, carbs_per_100g=3.6, category='vegetables', serving_type='salad,snack', vitamin_c=10),
+            FoodItem(name='Помидоры свежие', calories_per_100g=18, protein_per_100g=0.9, fat_per_100g=0.2, carbs_per_100g=3.9, category='vegetables', serving_type='salad', vitamin_c=14),
+            FoodItem(name='Морковь вареная', calories_per_100g=35, protein_per_100g=0.8, fat_per_100g=0.2, carbs_per_100g=8.0, category='vegetables', serving_type='salad,second', vitamin_a=850),
+            FoodItem(name='Картофель вареный', calories_per_100g=82, protein_per_100g=2.0, fat_per_100g=0.4, carbs_per_100g=17.0, category='vegetables', serving_type='second'),
             
             # Фрукты
-            FoodItem(name='Банан', calories_per_100g=89, protein_per_100g=1.1, fat_per_100g=0.3, carbs_per_100g=22.8, category='fruits', vitamin_c=9, magnesium=27, is_basic=True),
-            FoodItem(name='Яблоко', calories_per_100g=52, protein_per_100g=0.3, fat_per_100g=0.2, carbs_per_100g=14.0, category='fruits', vitamin_c=5, is_basic=True),
-            FoodItem(name='Апельсин', calories_per_100g=47, protein_per_100g=0.9, fat_per_100g=0.1, carbs_per_100g=12.0, category='fruits', vitamin_c=53, is_basic=True),
+            FoodItem(name='Банан', calories_per_100g=89, protein_per_100g=1.1, fat_per_100g=0.3, carbs_per_100g=22.8, category='fruits', serving_type='snack', vitamin_c=9, magnesium=27),
+            FoodItem(name='Яблоко', calories_per_100g=52, protein_per_100g=0.3, fat_per_100g=0.2, carbs_per_100g=14.0, category='fruits', serving_type='snack', vitamin_c=5),
+            FoodItem(name='Апельсин', calories_per_100g=47, protein_per_100g=0.9, fat_per_100g=0.1, carbs_per_100g=12.0, category='fruits', serving_type='snack,drink', vitamin_c=53),
             
-            # Масла и жиры
-            FoodItem(name='Масло подсолнечное', calories_per_100g=884, protein_per_100g=0.0, fat_per_100g=100.0, carbs_per_100g=0.0, category='oils', vitamin_e=41, is_basic=True),
-            FoodItem(name='Масло оливковое', calories_per_100g=884, protein_per_100g=0.0, fat_per_100g=100.0, carbs_per_100g=0.0, category='oils', vitamin_e=14, is_basic=True),
-            FoodItem(name='Масло сливочное', calories_per_100g=717, protein_per_100g=0.9, fat_per_100g=81.0, carbs_per_100g=0.1, category='oils', vitamin_a=684, is_basic=True),
+            # Масла и жиры (ингредиенты, не подаются отдельно)
+            FoodItem(name='Масло подсолнечное', calories_per_100g=884, protein_per_100g=0.0, fat_per_100g=100.0, carbs_per_100g=0.0, category='oils', serving_type='ingredient', vitamin_e=41),
+            FoodItem(name='Масло оливковое', calories_per_100g=884, protein_per_100g=0.0, fat_per_100g=100.0, carbs_per_100g=0.0, category='oils', serving_type='ingredient', vitamin_e=14),
+            FoodItem(name='Масло сливочное', calories_per_100g=717, protein_per_100g=0.9, fat_per_100g=81.0, carbs_per_100g=0.1, category='oils', serving_type='ingredient', vitamin_a=684),
             
             # Хлеб и выпечка
-            FoodItem(name='Хлеб белый', calories_per_100g=265, protein_per_100g=9.0, fat_per_100g=3.2, carbs_per_100g=49.0, category='bakery', is_basic=True),
-            FoodItem(name='Хлеб черный (ржаной)', calories_per_100g=214, protein_per_100g=8.5, fat_per_100g=3.3, carbs_per_100g=40.0, category='bakery', is_basic=True),
-
-            # ДОБАВЛЯЕМ ГОТОВЫЕ БЛЮДА (is_basic=False)
-            FoodItem(name='Борщ классический', calories_per_100g=45, protein_per_100g=1.5, fat_per_100g=2.0, carbs_per_100g=6.0, is_basic=False, category='vegetables'),
-            FoodItem(name='Овсянка с ягодами и медом', calories_per_100g=95, protein_per_100g=2.5, fat_per_100g=1.5, carbs_per_100g=18.0, is_basic=False, category='prepared'),
+            FoodItem(name='Хлеб белый', calories_per_100g=265, protein_per_100g=9.0, fat_per_100g=3.2, carbs_per_100g=49.0, category='bakery', serving_type='snack,main'),
+            FoodItem(name='Хлеб черный (ржаной)', calories_per_100g=214, protein_per_100g=8.5, fat_per_100g=3.3, carbs_per_100g=40.0, category='bakery', serving_type='snack,main'),
+            
+            # Готовые блюда
+            FoodItem(name='Борщ классический', calories_per_100g=45, protein_per_100g=1.5, fat_per_100g=2.0, carbs_per_100g=6.0, is_basic=False, category='prepared', serving_type='soup,main'),
+            FoodItem(name='Овсянка с ягодами и медом', calories_per_100g=95, protein_per_100g=2.5, fat_per_100g=1.5, carbs_per_100g=18.0, is_basic=False, category='prepared', serving_type='breakfast,main'),
         
         ]
         

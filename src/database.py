@@ -285,6 +285,7 @@ class CustomFood(Base):
     """Пользовательские продукты (добавленные вручную)"""
     __tablename__ = 'custom_foods'
     categories = Column(String(500))
+    serving_type = Column(String(100))  # НОВОЕ ПОЛЕ
     custom_food_id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
     name = Column(String(200), nullable=False)

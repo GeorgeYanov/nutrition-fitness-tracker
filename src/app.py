@@ -1170,6 +1170,24 @@ else:
                                     with cols_cat[i % 3]:
                                         if st.checkbox(f"{cat.icon} {cat.display_name}", key=f"cat_{cat.category_id}"):
                                             selected_cats.append(cat.name)
+                            with st.expander("🍽️ Тип подачи блюда", expanded=False):
+                                st.caption("Выбери один или несколько вариантов подачи")
+                                serving_options = [
+                                    ('main', '🍽️ Основное блюдо'),
+                                    ('soup', ' Первое блюдо (суп)'),
+                                    ('second', '🥘 Второе блюдо'),
+                                    ('salad', '🥗 Салат'),
+                                    ('snack', '🍪 Закуска / Перекус'),
+                                    ('drink', '🥤 Напиток'),
+                                    ('breakfast', '🌅 Завтрак'),
+                                    ('ingredient', '🧂 Только ингредиент'),
+                                ]
+                                selected_serving = []
+                                cols_serving = st.columns(2)
+                                for i, (serving_key, serving_label) in enumerate(serving_options):
+                                    with cols_serving[i % 2]:
+                                        if st.checkbox(serving_label, key=f"serving_{serving_key}"):
+                                            selected_serving.append(serving_key)
                         
                         weight = st.number_input(
                             "Сколько грамм съел?",
@@ -1217,6 +1235,7 @@ else:
                                     carbs_per_100g=new_carb,
                                     # Сохраняем выбранные категории через запятую
                                     categories=",".join(selected_cats) if 'selected_cats' in locals() and selected_cats else None,
+                                    serving_type=",".join(selected_serving) if 'selected_serving' in locals() and selected_serving else None,  # НОВОЕ
                                     # Микронутриенты
                                     vitamin_a=new_vit_a if new_vit_a > 0 else None,
                                     vitamin_c=new_vit_c if new_vit_c > 0 else None,
@@ -1306,6 +1325,24 @@ else:
                         ["Без обработки", "Варка", "Жарка", "Тушение", "Запекание", "На пару", "Гриль", "Копчение"],
                         key="new_comp_method"
                     )
+                # После блока с категориями
+                st.markdown("###### 🍽️ Тип подачи готового блюда")
+                st.caption("Выбери один или несколько вариантов")
+                serving_options = [
+                    ('main', '🍽️ Основное блюдо'),
+                    ('soup', '🥣 Первое блюдо (суп)'),
+                    ('second', '🥘 Второе блюдо'),
+                    ('salad', '🥗 Салат'),
+                    ('snack', '🍪 Закуска / Перекус'),
+                    ('drink', '🥤 Напиток'),
+                    ('breakfast', '🌅 Завтрак'),
+                ]
+                selected_serving = []
+                cols_serving = st.columns(2)
+                for i, (serving_key, serving_label) in enumerate(serving_options):
+                    with cols_serving[i % 2]:
+                        if st.checkbox(serving_label, key=f"complex_serving_{serving_key}"):
+                            selected_serving.append(serving_key)
                 with col_add4:
                     new_comp_time = st.number_input("Время (мин)", min_value=0, value=0, step=5, key="new_comp_time")
                 
@@ -1441,10 +1478,11 @@ else:
                                         protein_per_100g=(totals['protein'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         fat_per_100g=(totals['fat'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         carbs_per_100g=(totals['carbs'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
-                                        is_basic=False, # Это готовое блюдо!
+                                        is_basic=False,
                                         is_complex_meal=True, 
                                         complex_meal_id=new_meal.meal_id,
-                                        categories=combined_categories_str # НАСЛЕДУЕМ КАТЕГОРИИ!
+                                        categories=combined_categories_str,
+                                        serving_type=",".join(selected_serving) if selected_serving else None,  # НОВОЕ
                                     )
                                     session.add(new_food)
                                     session.flush()
