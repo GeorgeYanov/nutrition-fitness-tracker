@@ -17,6 +17,27 @@ from calculations import (
     )
 from auth import register_user, authenticate_user
 
+def get_display_categories(food_obj):
+    """Универсальная функция для получения строки категорий продукта"""
+    all_cats = get_all_categories()
+    cat_map = {c.name: f"{c.icon} {c.display_name}" for c in all_cats}
+    
+    # 1. Если это базовый продукт из foods.db
+    if hasattr(food_obj, 'food_id'):
+        categories = get_food_categories(food_obj.food_id)
+        if categories:
+            return ", ".join([f"{c.icon} {c.display_name}" for c in categories])
+    
+    # 2. Если это пользовательский продукт (или сложное блюдо) из tracker.db
+    elif hasattr(food_obj, 'categories') and food_obj.categories:
+        # Строка выглядит как "dairy,meat,vegetables"
+        cat_names = [name.strip() for name in food_obj.categories.split(',')]
+        display_cats = [cat_map.get(name, name) for name in cat_names if name in cat_map]
+        if display_cats:
+            return ", ".join(display_cats)
+            
+    return "Без категории"
+
 # Настройка страницы
 st.set_page_config(page_title="Fitness Tracker", page_icon="🏋️", layout="wide")
 
@@ -569,7 +590,7 @@ else:
                 for f in filtered_foods:
                     # Категории (только для base_foods)
                     categories = get_food_categories(f.food_id) if hasattr(f, 'food_id') else []
-                    cat_display = ", ".join([f"{c.icon} {c.display_name}" for c in categories]) if categories else "Без категории"
+                    cat_display = get_display_categories(f)
                     is_custom_tag = " *(Твой)*" if hasattr(f, 'custom_food_id') else ""
                     
                     data_macros.append({
@@ -836,8 +857,13 @@ else:
                                 selected_food = CustomFood(
                                     user_id=current_user.user_id,
                                     name=new_food_name,
-                                    calories_per_100g=new_cal, protein_per_100g=new_prot,
-                                    fat_per_100g=new_fat, carbs_per_100g=new_carb,
+                                    calories_per_100g=new_cal,
+                                    protein_per_100g=new_prot,
+                                    fat_per_100g=new_fat,
+                                    carbs_per_100g=new_carb,
+                                    # Сохраняем выбранные категории через запятую
+                                    categories=",".join(selected_cats) if 'selected_cats' in locals() and selected_cats else None,
+                                    # Микронутриенты
                                     vitamin_a=new_vit_a if new_vit_a > 0 else None,
                                     vitamin_c=new_vit_c if new_vit_c > 0 else None,
                                     vitamin_d=new_vit_d if new_vit_d > 0 else None,
@@ -849,8 +875,7 @@ else:
                                     magnesium=new_magnesium if new_magnesium > 0 else None,
                                     zinc=new_zinc if new_zinc > 0 else None,
                                     iodine=new_iodine if new_iodine > 0 else None,
-                                    selenium=new_selenium if new_selenium > 0 else None,
-                                    categories=",".join(selected_cats) if selected_cats else None
+                                    selenium=new_selenium if new_selenium > 0 else None
                                 )
                                 session.add(selected_food)
                                 session.commit()
@@ -984,7 +1009,7 @@ else:
                             if not dish_name:
                                 st.error("❌ Введи название блюда!")
                             else:
-                                # Собираем ВСЕ продукты (и стандартные, и кастомные) в словарь по ИМЕНИ
+                                # 1. Собираем ВСЕ продукты в словарь по ИМЕНИ для расчета
                                 foods_dict = {}
                                 for f in get_all_foods():
                                     foods_dict[f.name] = f
@@ -993,51 +1018,99 @@ else:
                                 
                                 totals = calculate_complex_meal_totals(st.session_state.recipe_components, foods_dict)
                                 
+                                # 2. Создаем запись ComplexMeal (для хранения деталей рецепта)
                                 new_meal = ComplexMeal(
-                                    user_id=current_user.user_id, date=meal_date, meal_type=meal_type,
-                                    dish_name=dish_name, total_weight=totals['weight'],
-                                    total_calories=totals['calories'], total_protein=totals['protein'],
-                                    total_fat=totals['fat'], total_carbs=totals['carbs']
+                                    user_id=current_user.user_id,
+                                    date=meal_date,
+                                    meal_type=meal_type,
+                                    dish_name=dish_name,
+                                    total_weight=totals['weight'],
+                                    total_calories=totals['calories'],
+                                    total_protein=totals['protein'],
+                                    total_fat=totals['fat'],
+                                    total_carbs=totals['carbs']
                                 )
                                 session.add(new_meal)
-                                session.flush()
+                                session.flush() # Получаем new_meal.meal_id
                                 
+                                # 3. Создаем компоненты блюда
                                 for comp in st.session_state.recipe_components:
                                     new_comp = ComplexMealComponent(
                                         meal_id=new_meal.meal_id,
-                                        food_name=comp['food_name'], # Сохраняем имя
+                                        food_name=comp['food_name'],
                                         weight=comp['weight'],
                                         cooking_method=comp['method'],
                                         cooking_time=comp['time'] if comp['time'] > 0 else None
                                     )
                                     session.add(new_comp)
                                 
+                                # 4. ВАЖНО: Проверяем, есть ли уже такое блюдо в справочнике (Определяем existing_food!)
                                 existing_food = session.query(CustomFood).filter(
                                     CustomFood.name.ilike(dish_name),
                                     CustomFood.user_id == current_user.user_id
                                 ).first()
                                 
+                                # 5. Собираем ВСЕ категории из ингредиентов для наследования
+                                ingredient_categories = set()
+                                all_cats = get_all_categories()
+                                cat_name_map = {c.name: c.name for c in all_cats}
+                                
+                                for comp in st.session_state.recipe_components:
+                                    f_name = comp['food_name']
+                                    # Ищем продукт в базе
+                                    f_obj = next((f for f in get_all_foods() if f.name == f_name), None)
+                                    if not f_obj:
+                                        f_obj = session.query(CustomFood).filter(
+                                            CustomFood.name == f_name, 
+                                            CustomFood.user_id == current_user.user_id
+                                        ).first()
+                                    
+                                    if f_obj:
+                                        if hasattr(f_obj, 'food_id'):
+                                            cats = get_food_categories(f_obj.food_id)
+                                            for c in cats: 
+                                                if c.name in cat_name_map:
+                                                    ingredient_categories.add(c.name)
+                                        elif hasattr(f_obj, 'categories') and f_obj.categories:
+                                            for c_name in f_obj.categories.split(','):
+                                                if c_name.strip() in cat_name_map:
+                                                    ingredient_categories.add(c_name.strip())
+                                
+                                combined_categories_str = ",".join(list(ingredient_categories)) if ingredient_categories else None
+
+                                # 6. Создаем или обновляем запись в справочнике продуктов
                                 if not existing_food:
                                     new_food = CustomFood(
-                                        user_id=current_user.user_id, name=dish_name,
+                                        user_id=current_user.user_id,
+                                        name=dish_name,
                                         calories_per_100g=(totals['calories'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         protein_per_100g=(totals['protein'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         fat_per_100g=(totals['fat'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
                                         carbs_per_100g=(totals['carbs'] / totals['weight'] * 100) if totals['weight'] > 0 else 0,
-                                        is_complex_meal=True, complex_meal_id=new_meal.meal_id
+                                        is_basic=False, # Это готовое блюдо!
+                                        is_complex_meal=True, 
+                                        complex_meal_id=new_meal.meal_id,
+                                        categories=combined_categories_str # НАСЛЕДУЕМ КАТЕГОРИИ!
                                     )
                                     session.add(new_food)
+                                    session.flush()
+                                    meal_food_id = new_food.custom_food_id
+                                else:
+                                    meal_food_id = existing_food.custom_food_id
                                 
+                                # 7. Создаем запись в дневнике питания
                                 new_log = FoodLog(
                                     user_id=current_user.user_id,
-                                    food_name=dish_name, # Сохраняем имя блюда
-                                    date=meal_date, meal_type=meal_type, weight_eaten=totals['weight']
+                                    food_name=dish_name,
+                                    date=meal_date,
+                                    meal_type=meal_type,
+                                    weight_eaten=totals['weight']
                                 )
                                 session.add(new_log)
-                                session.commit()
                                 
+                                session.commit()
                                 st.session_state.recipe_components = []
-                                st.success(f"🎉 Блюдо '{dish_name}' сохранено! Итого: {totals['calories']:.0f} ккал")
+                                st.success(f"🎉 Блюдо '{dish_name}' сохранено и добавлено в дневник! Итого: {totals['calories']:.0f} ккал")
                                 st.balloons()
                                 st.rerun()
                 else:
