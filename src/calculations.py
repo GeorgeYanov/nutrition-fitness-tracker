@@ -307,15 +307,19 @@ def get_standard_micro_goals(gender, weight):
     
     return {k: round(v * multiplier) for k, v in goals.items()}
 
-def generate_daily_plan(target_calories, target_protein, target_fat, target_carbs, user_allergen_names, base_foods, custom_foods):
+def generate_weekly_plan(target_calories, target_protein, target_fat, target_carbs, 
+                        user_allergen_names, user_favorite_foods, user_disliked_foods,
+                        meals_per_day, min_favorite_meals, serving_distribution,
+                        base_foods, custom_foods):
     """
-    Генерирует план питания на день с учетом типа подачи блюд
+    Генерирует план питания на неделю с учетом предпочтений пользователя
     """
     daily_cal = target_calories if target_calories else 2000
     
-    # Объединяем и фильтруем продукты по аллергиям
+    # Объединяем и фильтруем продукты
     all_foods = base_foods + custom_foods
     
+    # Карта аллергенов
     allergen_map = {
         'milk': ['dairy', 'молоко', 'творог', 'сыр', 'кефир', 'сливки'],
         'dairy': ['dairy', 'молоко', 'творог', 'сыр', 'кефир'],
@@ -337,9 +341,10 @@ def generate_daily_plan(target_calories, target_protein, target_fat, target_carb
             f_cats = [c.strip().lower() for c in f.categories.split(',')]
         elif hasattr(f, 'category') and f.category:
             f_cats = [f.category.lower()]
-            
+        
         f_name = f.name.lower()
         
+        # Проверка аллергий
         for allergen in user_allergen_names:
             allergen = allergen.lower()
             if allergen in allergen_map:
@@ -349,87 +354,100 @@ def generate_daily_plan(target_calories, target_protein, target_fat, target_carb
                         break
             if allergen in f_cats or allergen in f_name:
                 is_safe = False
+        
+        # Исключаем нелюбимые блюда
+        if f.name in user_disliked_foods:
+            is_safe = False
+        
         if is_safe:
             safe_foods.append(f)
 
     if not safe_foods:
-        return {'error': 'Не найдено безопасных продуктов. Проверьте аллергии.'}
+        return {'error': 'Не найдено безопасных продуктов. Проверьте аллергии и предпочтения.'}
 
-    # Распределяем калории
-    meal_targets = {
-        'breakfast': daily_cal * 0.30,
-        'lunch': daily_cal * 0.40,
-        'dinner': daily_cal * 0.30
-    }
+    # Распределяем калории на приемы пищи
+    cal_per_meal = daily_cal / meals_per_day
     
-    # Определяем типы подачи для каждого приема пищи
-    meal_serving_types = {
-        'breakfast': ['breakfast', 'main', 'soup', 'second'],
-        'lunch': ['soup', 'second', 'main', 'salad'],
-        'dinner': ['second', 'main', 'salad', 'soup']
-    }
+    weekly_plan = {}
     
-    plan = {}
-    
-    for meal_type, cal_target in meal_targets.items():
-        allowed_serving_types = meal_serving_types[meal_type]
+    # Для каждого дня недели
+    for day in range(7):
+        day_plan = {}
+        favorite_count = 0
         
-        # Фильтруем продукты по типу подачи
-        suitable_foods = []
-        for f in safe_foods:
-            f_serving = getattr(f, 'serving_type', None)
-            if f_serving:
-                f_serving_list = [s.strip().lower() for s in f_serving.split(',')]
-                if any(s in allowed_serving_types for s in f_serving_list):
+        # Для каждого приема пищи
+        for meal_num in range(1, meals_per_day + 1):
+            meal_key = f"meal_{meal_num}"
+            allowed_serving_types = serving_distribution.get(str(meal_num), [])
+            
+            # Фильтруем продукты по типу подачи
+            suitable_foods = []
+            for f in safe_foods:
+                f_serving = getattr(f, 'serving_type', None)
+                if f_serving:
+                    f_serving_list = [s.strip().lower() for s in f_serving.split(',')]
+                    if not allowed_serving_types or any(s in allowed_serving_types for s in f_serving_list):
+                        suitable_foods.append(f)
+                else:
                     suitable_foods.append(f)
+            
+            if not suitable_foods:
+                suitable_foods = safe_foods
+            
+            # Пытаемся добавить любимое блюдо (если еще не достигли минимума)
+            favorite_foods_in_suitable = [f for f in suitable_foods if f.name in user_favorite_foods]
+            
+            if favorite_foods_in_suitable and favorite_count < min_favorite_meals and random.random() > 0.3:
+                # Выбираем любимое блюдо
+                chosen = random.choice(favorite_foods_in_suitable)
+                favorite_count += 1
             else:
-                # Если тип подачи не указан, считаем подходящим
-                suitable_foods.append(f)
-        
-        if not suitable_foods:
-            suitable_foods = safe_foods  # Фоллбэк
-        
-        # Ищем готовые блюда
-        ready_meals = [f for f in suitable_foods if not getattr(f, 'is_basic', True)]
-        
-        if ready_meals and random.random() > 0.3:
-            chosen = random.choice(ready_meals)
-            weight = (cal_target / chosen.calories_per_100g * 100) if chosen.calories_per_100g > 0 else 250
-            plan[meal_type] = [{
-                'name': chosen.name, 
-                'weight': round(weight), 
-                'method': 'Без обработки', 
+                # Ищем готовые блюда или конструируем
+                ready_meals = [f for f in suitable_foods if not getattr(f, 'is_basic', True)]
+                
+                if ready_meals and random.random() > 0.3:
+                    chosen = random.choice(ready_meals)
+                else:
+                    # Конструируем из базовых
+                    proteins = [f for f in suitable_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['meat', 'fish', 'eggs', 'dairy']]
+                    carbs = [f for f in suitable_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['grains', 'vegetables', 'bakery']]
+                    
+                    if not proteins: proteins = [f for f in suitable_foods if getattr(f, 'is_basic', True)]
+                    if not carbs: carbs = proteins
+                    
+                    p = random.choice(proteins) if proteins else None
+                    c = random.choice(carbs) if carbs else None
+                    
+                    components = []
+                    w_p, w_c = 150, 200
+                    base_cals = 0
+                    if p: base_cals += p.calories_per_100g * w_p / 100
+                    if c: base_cals += c.calories_per_100g * w_c / 100
+                    
+                    if base_cals > 0:
+                        scale = cal_per_meal / base_cals
+                        w_p = int(w_p * scale)
+                        w_c = int(w_c * scale)
+                    
+                    if p: components.append({'name': p.name, 'weight': w_p, 'method': 'Запекание', 'time': 20})
+                    if c: components.append({'name': c.name, 'weight': w_c, 'method': 'Варка', 'time': 15})
+                    
+                    day_plan[meal_key] = components
+                    continue
+            
+            # Если выбрали одно блюдо (готовое или любимое)
+            weight = (cal_per_meal / chosen.calories_per_100g * 100) if chosen.calories_per_100g > 0 else 250
+            day_plan[meal_key] = [{
+                'name': chosen.name,
+                'weight': round(weight),
+                'method': 'Без обработки',
                 'time': 0,
                 'is_ready_meal': True
             }]
-        else:
-            # Конструируем из базовых ингредиентов
-            proteins = [f for f in suitable_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['meat', 'fish', 'eggs', 'dairy']]
-            carbs = [f for f in suitable_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['grains', 'vegetables', 'bakery']]
-            
-            if not proteins: proteins = [f for f in suitable_foods if getattr(f, 'is_basic', True)]
-            if not carbs: carbs = proteins 
-            
-            p = random.choice(proteins) if proteins else None
-            c = random.choice(carbs) if carbs else None
-            
-            components = []
-            w_p, w_c = 150, 200 
-            base_cals = 0
-            if p: base_cals += p.calories_per_100g * w_p / 100
-            if c: base_cals += c.calories_per_100g * w_c / 100
-            
-            if base_cals > 0:
-                scale = cal_target / base_cals
-                w_p = int(w_p * scale)
-                w_c = int(w_c * scale)
-            
-            if p: components.append({'name': p.name, 'weight': w_p, 'method': 'Запекание', 'time': 20})
-            if c: components.append({'name': c.name, 'weight': w_c, 'method': 'Варка', 'time': 15})
-            
-            plan[meal_type] = components
+        
+        weekly_plan[day] = day_plan
 
-    return plan
+    return weekly_plan
     
     safe_foods = []
     for f in all_foods:

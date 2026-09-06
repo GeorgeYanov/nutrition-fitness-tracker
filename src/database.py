@@ -326,6 +326,33 @@ class GeneratedPlan(Base):
     
     user = relationship('User', backref='generated_plans')
 
+class UserFoodPreference(Base):
+    """Предпочтения пользователя по продуктам (любимые/нелюбимые)"""
+    __tablename__ = 'user_food_preferences'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    food_name = Column(String(200), nullable=False)
+    preference_type = Column(String(20), nullable=False)  # 'favorite' или 'disliked'
+    
+    user = relationship('User', backref='food_preferences')
+
+
+class MealPlanSettings(Base):
+    """Настройки генерации рациона пользователя"""
+    __tablename__ = 'meal_plan_settings'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False, unique=True)
+    meals_per_day = Column(Integer, default=3)  # Количество приемов пищи в день
+    min_favorite_meals = Column(Integer, default=2)  # Минимум любимых блюд в рационе
+    
+    # Храним распределение типов подачи по приемам пищи как JSON
+    # Например: {"breakfast": ["breakfast", "main"], "lunch": ["soup", "second"], "dinner": ["second", "salad"]}
+    serving_distribution = Column(String)
+    
+    user = relationship('User', backref='meal_plan_settings')
+
 # ============================================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ
 # ============================================================================

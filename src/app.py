@@ -8,13 +8,14 @@ import pandas as pd
 from database import (
     get_session, User, Exercise, FoodLog, Workout, WorkoutLog, 
     UserMeasurement, UserGoal, MedicalResult, ComplexMeal, 
-    ComplexMealComponent, Allergen, UserAllergy, CustomFood, GeneratedPlan # <-- ДОБАВИЛИ GeneratedPlan
+    ComplexMealComponent, Allergen, UserAllergy, CustomFood, 
+    GeneratedPlan, UserFoodPreference, MealPlanSettings
 )
 from foods_database import get_all_foods, get_food_by_name, FoodItem, get_all_categories, get_food_categories, get_foods_by_category, FoodCategory
 from calculations import (
        calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
        calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
-       calculate_complex_meal_totals, get_standard_micro_goals, generate_daily_plan
+       calculate_complex_meal_totals, get_standard_micro_goals, generate_weekly_plan
    )
 from auth import register_user, authenticate_user
 
@@ -239,10 +240,11 @@ else:
             st.header("👤 Профиль пользователя")
             
             # Создаем верхние вкладки
-            tab_personal, tab_analyses, tab_progress = st.tabs([
+            tab_personal, tab_analyses, tab_progress, tab_preferences = st.tabs([
                 "📝 Личные данные и замеры", 
                 "🩺 Медицинские анализы", 
-                "📊 Прогресс и аналитика"
+                "📊 Прогресс и аналитика",
+                "❤️ Предпочтения"
             ])
             
             with tab_personal:
@@ -1033,6 +1035,214 @@ else:
                         else:
                             st.warning("📭 Нет данных о питании. Добавь хотя бы один прием пищи.")
                 pass
+
+            with tab_preferences:
+                st.subheader("❤️ Предпочтения в еде")
+                st.caption("Настройте генератор рациона под ваши вкусы")
+                
+                # Получаем все продукты для поиска
+                all_foods = get_all_foods() + session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
+                
+                # =========================================================================
+                # РАЗДЕЛ 1: ЛЮБИМЫЕ БЛЮДА
+                # =========================================================================
+                st.markdown("###  Любимые блюда")
+                
+                # Получаем текущие любимые блюда
+                favorite_foods = session.query(UserFoodPreference).filter(
+                    UserFoodPreference.user_id == current_user.user_id,
+                    UserFoodPreference.preference_type == 'favorite'
+                ).all()
+                favorite_names = [fp.food_name for fp in favorite_foods]
+                
+                if favorite_names:
+                    st.markdown("**Текущие любимые блюда:**")
+                    cols_fav = st.columns(3)
+                    for i, name in enumerate(favorite_names):
+                        with cols_fav[i % 3]:
+                            st.write(f"• {name}")
+                    st.markdown("")
+                
+                # Поиск и добавление
+                fav_search = st.text_input("🔍 Поиск любимого блюда:", key="fav_search")
+                if fav_search:
+                    filtered_foods = [f for f in all_foods if fav_search.lower() in f.name.lower()]
+                    if filtered_foods:
+                        selected_fav = st.selectbox("Выберите блюдо:", [f.name for f in filtered_foods], key="select_fav")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("➕ Добавить в любимые", key="add_fav"):
+                                existing = session.query(UserFoodPreference).filter(
+                                    UserFoodPreference.user_id == current_user.user_id,
+                                    UserFoodPreference.food_name == selected_fav,
+                                    UserFoodPreference.preference_type == 'favorite'
+                                ).first()
+                                if not existing:
+                                    new_pref = UserFoodPreference(
+                                        user_id=current_user.user_id,
+                                        food_name=selected_fav,
+                                        preference_type='favorite'
+                                    )
+                                    session.add(new_pref)
+                                    session.commit()
+                                    st.success(f"✅ '{selected_fav}' добавлено в любимые!")
+                                    st.rerun()
+                        with col2:
+                            if st.button("➖ Удалить из любимых", key="remove_fav"):
+                                pref = session.query(UserFoodPreference).filter(
+                                    UserFoodPreference.user_id == current_user.user_id,
+                                    UserFoodPreference.food_name == selected_fav,
+                                    UserFoodPreference.preference_type == 'favorite'
+                                ).first()
+                                if pref:
+                                    session.delete(pref)
+                                    session.commit()
+                                    st.success(f"❌ '{selected_fav}' удалено из любимых!")
+                                    st.rerun()
+                
+                st.markdown("---")
+                
+                # =========================================================================
+                # РАЗДЕЛ 2: НЕЛЮБИМЫЕ БЛЮДА
+                # =========================================================================
+                st.markdown("### ❌ Нелюбимые блюда")
+                
+                disliked_foods = session.query(UserFoodPreference).filter(
+                    UserFoodPreference.user_id == current_user.user_id,
+                    UserFoodPreference.preference_type == 'disliked'
+                ).all()
+                disliked_names = [fp.food_name for fp in disliked_foods]
+                
+                if disliked_names:
+                    st.markdown("**Текущие нелюбимые блюда:**")
+                    cols_dis = st.columns(3)
+                    for i, name in enumerate(disliked_names):
+                        with cols_dis[i % 3]:
+                            st.write(f"• {name}")
+                    st.markdown("")
+                
+                dis_search = st.text_input("🔍 Поиск нелюбимого блюда:", key="dis_search")
+                if dis_search:
+                    filtered_foods = [f for f in all_foods if dis_search.lower() in f.name.lower()]
+                    if filtered_foods:
+                        selected_dis = st.selectbox("Выберите блюдо:", [f.name for f in filtered_foods], key="select_dis")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button(" Добавить в нелюбимые", key="add_dis"):
+                                existing = session.query(UserFoodPreference).filter(
+                                    UserFoodPreference.user_id == current_user.user_id,
+                                    UserFoodPreference.food_name == selected_dis,
+                                    UserFoodPreference.preference_type == 'disliked'
+                                ).first()
+                                if not existing:
+                                    new_pref = UserFoodPreference(
+                                        user_id=current_user.user_id,
+                                        food_name=selected_dis,
+                                        preference_type='disliked'
+                                    )
+                                    session.add(new_pref)
+                                    session.commit()
+                                    st.success(f"✅ '{selected_dis}' добавлено в нелюбимые!")
+                                    st.rerun()
+                        with col2:
+                            if st.button(" Удалить из нелюбимых", key="remove_dis"):
+                                pref = session.query(UserFoodPreference).filter(
+                                    UserFoodPreference.user_id == current_user.user_id,
+                                    UserFoodPreference.food_name == selected_dis,
+                                    UserFoodPreference.preference_type == 'disliked'
+                                ).first()
+                                if pref:
+                                    session.delete(pref)
+                                    session.commit()
+                                    st.success(f"❌ '{selected_dis}' удалено из нелюбимых!")
+                                    st.rerun()
+                
+                st.markdown("---")
+                
+                # =========================================================================
+                # РАЗДЕЛ 3: ПАРАМЕТРЫ ГЕНЕРАЦИИ
+                # =========================================================================
+                st.markdown("### ⚙️ Параметры генерации рациона")
+                
+                # Получаем текущие настройки
+                settings = session.query(MealPlanSettings).filter(MealPlanSettings.user_id == current_user.user_id).first()
+                if not settings:
+                    settings = MealPlanSettings(user_id=current_user.user_id, meals_per_day=3, min_favorite_meals=2)
+                    session.add(settings)
+                    session.commit()
+                
+                with st.form("meal_plan_settings_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        meals_per_day = st.number_input(
+                            "Количество приемов пищи в день:",
+                            min_value=2,
+                            max_value=6,
+                            value=settings.meals_per_day if settings else 3,
+                            step=1
+                        )
+                    with col2:
+                        min_favorite = st.number_input(
+                            "Минимум любимых блюд в рационе:",
+                            min_value=0,
+                            max_value=10,
+                            value=settings.min_favorite_meals if settings else 2,
+                            step=1
+                        )
+                    
+                    st.markdown("**Распределение типов подачи по приемам пищи:**")
+                    st.caption("Укажите, какие типы блюд вы предпочитаете для каждого приема пищи")
+                    
+                    meal_names_map = {
+                        1: "Прием 1 (например, завтрак)",
+                        2: "Прием 2 (например, обед)",
+                        3: "Прием 3 (например, ужин)",
+                        4: "Прием 4 (перекус)",
+                        5: "Прием 5 (перекус)",
+                        6: "Прием 6 (перекус)"
+                    }
+                    
+                    serving_types = ['main', 'soup', 'second', 'salad', 'snack', 'drink', 'breakfast']
+                    serving_labels = {
+                        'main': '🍽️ Основное',
+                        'soup': '🥣 Суп',
+                        'second': '🥘 Второе',
+                        'salad': '🥗 Салат',
+                        'snack': ' Закуска',
+                        'drink': ' Напиток',
+                        'breakfast': '🌅 Завтрак'
+                    }
+                    
+                    # Загружаем текущее распределение
+                    current_distribution = {}
+                    if settings and settings.serving_distribution:
+                        try:
+                            current_distribution = json.loads(settings.serving_distribution)
+                        except:
+                            pass
+                    
+                    new_distribution = {}
+                    for meal_num in range(1, meals_per_day + 1):
+                        st.markdown(f"**{meal_names_map[meal_num]}:**")
+                        selected_servings = []
+                        cols_s = st.columns(4)
+                        for i, s_type in enumerate(serving_types):
+                            with cols_s[i % 4]:
+                                is_checked = s_type in current_distribution.get(str(meal_num), [])
+                                if st.checkbox(serving_labels[s_type], value=is_checked, key=f"serving_{meal_num}_{s_type}"):
+                                    selected_servings.append(s_type)
+                        new_distribution[str(meal_num)] = selected_servings
+                        st.markdown("")
+                    
+                    submit_settings = st.form_submit_button("💾 Сохранить настройки", type="primary", use_container_width=True)
+                    
+                    if submit_settings:
+                        settings.meals_per_day = meals_per_day
+                        settings.min_favorite_meals = min_favorite
+                        settings.serving_distribution = json.dumps(new_distribution)
+                        session.commit()
+                        st.success("✅ Настройки генерации сохранены!")
+                        st.rerun()
         # ============================================================================
         # СТРАНИЦА ПИТАНИЯ
         # ============================================================================
@@ -1050,12 +1260,84 @@ else:
             if not user:
                 st.error("Пользователь не найден!")
             else:
-                # ====== ВЫБОР ДАТЫ ======
-                selected_date = st.date_input(
-                    "📅 Выбери дату:",
-                    value=date.today(),
-                    max_value=date.today()
-                )
+                # =========================================================================
+                # ДНЕВНИК ЗА ВЫБРАННУЮ ДАТУ
+                # =========================================================================
+                st.markdown("---")
+                header_col1, header_col2 = st.columns([3, 1])
+                
+                with header_col1:
+                    st.subheader("📋 Дневник питания")
+                
+                with header_col2:
+                    selected_date = st.date_input(
+                        " Дата:",
+                        value=date.today(),
+                        max_value=date.today(),
+                        label_visibility="collapsed",  # Скрываем метку "Дата:"
+                        key="diary_date_selector"
+                    )
+                day_logs = session.query(FoodLog).filter(
+                    FoodLog.user_id == current_user.user_id,
+                    FoodLog.date == selected_date
+                ).order_by(FoodLog.id.desc()).all()
+                
+                # Собираем словарь продуктов для расчетов
+                all_foods_dict = {}
+                for f in get_all_foods():
+                    all_foods_dict[f.name] = f
+                for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                    all_foods_dict[f.name] = f
+                
+                if day_logs:
+                    meals_grouped = {'breakfast': [], 'lunch': [], 'dinner': [], 'snack': []}
+                    for log in day_logs:
+                        meals_grouped[log.meal_type].append(log)
+                    
+                    meal_names = {'breakfast': '🌅 Завтрак', 'lunch': '☀️ Обед', 'dinner': '🌙 Ужин', 'snack': '🍪 Перекусы'}
+                    
+                    for meal_type, logs in meals_grouped.items():
+                        if logs:
+                            st.markdown(f"### {meal_names[meal_type]}")
+                            
+                            for log in logs:
+                                food_item = all_foods_dict.get(log.food_name)
+                                macros = calculate_food_calories(food_item, log.weight_eaten) if food_item else {'calories': 0, 'protein': 0, 'fat': 0, 'carbs': 0}
+                                
+                                col1, col2, col3 = st.columns([3, 2, 1])
+                                with col1:
+                                    st.write(f"**{log.food_name}** — {log.weight_eaten}г")
+                                    st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
+                                    
+                                    if isinstance(food_item, CustomFood) and food_item.is_complex_meal and food_item.complex_meal_id:
+                                        complex_meal = session.query(ComplexMeal).filter(ComplexMeal.meal_id == food_item.complex_meal_id).first()
+                                        if complex_meal:
+                                            with st.expander("📝 Состав блюда"):
+                                                for comp in complex_meal.components:
+                                                    time_str = f", {int(comp.cooking_time)} мин" if comp.cooking_time else ""
+                                                    st.write(f"• {comp.food_name}: {comp.weight}г ({comp.cooking_method}{time_str})")
+                                
+                                with col2:
+                                    st.write(f"**{macros['calories']:.0f} ккал**")
+                                with col3:
+                                    if st.button("🗑️", key=f"del_food_{log.id}"):
+                                        session.delete(log)
+                                        session.commit()
+                                        st.rerun()
+                            st.markdown("")
+                    
+                    # Используем обновленную функцию с передачей словаря
+                    totals = calculate_daily_totals(day_logs, all_foods_dict)
+                    st.markdown("---")
+                    st.subheader("📊 Итого за день")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1: st.metric("🔥 Калории", f"{totals['calories']:.0f} ккал")
+                    with col2: st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
+                    with col3: st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
+                    with col4: st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
+                else:
+                    st.info(f"📭 Записей за {selected_date.strftime('%d.%m.%Y')} пока нет")
+                st.markdown("---")
             with tab_diary:
                 st.subheader("➕ Добавить прием пищи")
                 
@@ -1508,73 +1790,6 @@ else:
                 else:
                     st.info("👆 Сначала добавь хотя бы один ингредиент в список выше, чтобы сохранить блюдо.")    
                 st.markdown("---")
-                
-                # =========================================================================
-                # ДНЕВНИК ЗА ВЫБРАННУЮ ДАТУ
-                # =========================================================================
-                st.markdown("---")
-                st.subheader(f"📋 Дневник за {selected_date.strftime('%d.%m.%Y')}")
-                
-                day_logs = session.query(FoodLog).filter(
-                    FoodLog.user_id == current_user.user_id,
-                    FoodLog.date == selected_date
-                ).order_by(FoodLog.id.desc()).all()
-                
-                # Собираем словарь продуктов для расчетов
-                all_foods_dict = {}
-                for f in get_all_foods():
-                    all_foods_dict[f.name] = f
-                for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
-                    all_foods_dict[f.name] = f
-                
-                if day_logs:
-                    meals_grouped = {'breakfast': [], 'lunch': [], 'dinner': [], 'snack': []}
-                    for log in day_logs:
-                        meals_grouped[log.meal_type].append(log)
-                    
-                    meal_names = {'breakfast': '🌅 Завтрак', 'lunch': '☀️ Обед', 'dinner': '🌙 Ужин', 'snack': '🍪 Перекусы'}
-                    
-                    for meal_type, logs in meals_grouped.items():
-                        if logs:
-                            st.markdown(f"### {meal_names[meal_type]}")
-                            
-                            for log in logs:
-                                food_item = all_foods_dict.get(log.food_name)
-                                macros = calculate_food_calories(food_item, log.weight_eaten) if food_item else {'calories': 0, 'protein': 0, 'fat': 0, 'carbs': 0}
-                                
-                                col1, col2, col3 = st.columns([3, 2, 1])
-                                with col1:
-                                    st.write(f"**{log.food_name}** — {log.weight_eaten}г")
-                                    st.caption(f"{macros['protein']:.1f}Б / {macros['fat']:.1f}Ж / {macros['carbs']:.1f}У")
-                                    
-                                    if isinstance(food_item, CustomFood) and food_item.is_complex_meal and food_item.complex_meal_id:
-                                        complex_meal = session.query(ComplexMeal).filter(ComplexMeal.meal_id == food_item.complex_meal_id).first()
-                                        if complex_meal:
-                                            with st.expander("📝 Состав блюда"):
-                                                for comp in complex_meal.components:
-                                                    time_str = f", {int(comp.cooking_time)} мин" if comp.cooking_time else ""
-                                                    st.write(f"• {comp.food_name}: {comp.weight}г ({comp.cooking_method}{time_str})")
-                                
-                                with col2:
-                                    st.write(f"**{macros['calories']:.0f} ккал**")
-                                with col3:
-                                    if st.button("🗑️", key=f"del_food_{log.id}"):
-                                        session.delete(log)
-                                        session.commit()
-                                        st.rerun()
-                            st.markdown("")
-                    
-                    # Используем обновленную функцию с передачей словаря
-                    totals = calculate_daily_totals(day_logs, all_foods_dict)
-                    st.markdown("---")
-                    st.subheader("📊 Итого за день")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1: st.metric("🔥 Калории", f"{totals['calories']:.0f} ккал")
-                    with col2: st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
-                    with col3: st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
-                    with col4: st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
-                else:
-                    st.info(f"📭 Записей за {selected_date.strftime('%d.%m.%Y')} пока нет")
                 pass
 
             with tab_reference:
@@ -1872,7 +2087,7 @@ else:
         # =========================================================================
         elif page == "📅 Мой календарь":
             st.header("📅 Мой календарь питания")
-            st.caption("План на текущую неделю. Рацион сохраняется и не меняется при переключении вкладок.")
+            st.caption("План на текущую неделю с учетом ваших предпочтений")
             
             today = date.today()
             start_of_week = today - timedelta(days=today.weekday())
@@ -1882,17 +2097,30 @@ else:
             col_widths = [3 if i == today.weekday() else 1 for i in range(7)]
             cols = st.columns(col_widths)
             
+            # Получаем настройки пользователя
+            settings = session.query(MealPlanSettings).filter(MealPlanSettings.user_id == current_user.user_id).first()
+            if not settings:
+                settings = MealPlanSettings(user_id=current_user.user_id, meals_per_day=3, min_favorite_meals=2)
+                session.add(settings)
+                session.commit()
+            
+            meals_per_day = settings.meals_per_day
+            serving_distribution = json.loads(settings.serving_distribution) if settings.serving_distribution else {}
+            
             # Вспомогательная функция для отображения плана
             def display_plan(plan_data, is_today_day):
-                meal_icons = {'breakfast': '🌅', 'lunch': '☀️', 'dinner': '🌙'}
-                meal_names_ru = {'breakfast': 'Завтрак', 'lunch': 'Обед', 'dinner': 'Ужин'}
+                meal_names_map = {
+                    1: "Прием 1", 2: "Прием 2", 3: "Прием 3",
+                    4: "Прием 4", 5: "Прием 5", 6: "Прием 6"
+                }
                 
-                for m_type in ['breakfast', 'lunch', 'dinner']:
-                    st.markdown(f"##### {meal_icons[m_type]} {meal_names_ru[m_type]}")
-                    components = plan_data.get(m_type, [])
+                for meal_num in range(1, meals_per_day + 1):
+                    meal_key = f"meal_{meal_num}"
+                    components = plan_data.get(meal_key, [])
+                    
+                    st.markdown(f"##### {meal_names_map[meal_num]}")
                     
                     if components:
-                        # Для сегодняшнего дня раскрываем по умолчанию, для прошлых - свернуто
                         with st.expander(f"Состав", expanded=is_today_day):
                             for comp in components:
                                 time_str = f", {comp.get('time', 0)} мин" if comp.get('time', 0) > 0 else ""
@@ -1915,7 +2143,7 @@ else:
                         
                         st.divider()
                         
-                        # 1. Проверяем, есть ли уже сохраненный план на эту дату
+                        # Проверяем сохраненный план
                         existing_plan = session.query(GeneratedPlan).filter(
                             GeneratedPlan.user_id == current_user.user_id,
                             GeneratedPlan.date == d_date
@@ -1923,25 +2151,36 @@ else:
                         
                         if existing_plan:
                             st.success("✅ Рацион сохранен")
-                            if st.button("🔄 Сгенерировать заново", key=f"regen_{d_date}", use_container_width=True):
+                            if st.button("🔄 Перегенерировать", key=f"regen_{d_date}", use_container_width=True):
                                 session.delete(existing_plan)
                                 session.commit()
                                 st.rerun()
                             
-                            # Загружаем и отображаем
-                            plan_data = {
-                                'breakfast': json.loads(existing_plan.breakfast_json) if existing_plan.breakfast_json else [],
-                                'lunch': json.loads(existing_plan.lunch_json) if existing_plan.lunch_json else [],
-                                'dinner': json.loads(existing_plan.dinner_json) if existing_plan.dinner_json else []
-                            }
-                            display_plan(plan_data, is_today)
+                            # Загружаем план
+                            plan_data = {}
+                            for meal_num in range(1, meals_per_day + 1):
+                                meal_key = f"meal_{meal_num}"
+                                json_field = getattr(existing_plan, f"meal_{meal_num}_json", None)
+                                plan_data[meal_key] = json.loads(json_field) if json_field else []
                             
+                            display_plan(plan_data, is_today)
+                        
                         else:
-                            st.info("📝 Рацион еще не составлен")
-                            if st.button("✨ Сгенерировать рацион", key=f"gen_{d_date}", use_container_width=True, type="primary"):
-                                with st.spinner("Подбираем лучшие блюда с учетом ваших целей и аллергий..."):
-                                    user_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                            st.info(" Рацион не составлен")
+                            if st.button("✨ Сгенерировать", key=f"gen_{d_date}", use_container_width=True, type="primary"):
+                                with st.spinner("Генерируем рацион..."):
+                                    # Получаем предпочтения
+                                    favorites = [fp.food_name for fp in session.query(UserFoodPreference).filter(
+                                        UserFoodPreference.user_id == current_user.user_id,
+                                        UserFoodPreference.preference_type == 'favorite'
+                                    ).all()]
                                     
+                                    dislikes = [fp.food_name for fp in session.query(UserFoodPreference).filter(
+                                        UserFoodPreference.user_id == current_user.user_id,
+                                        UserFoodPreference.preference_type == 'disliked'
+                                    ).all()]
+                                    
+                                    # Получаем аллергии
                                     user_allergies_objs = session.query(UserAllergy).filter(UserAllergy.user_id == current_user.user_id).all()
                                     user_allergen_names = []
                                     for ua in user_allergies_objs:
@@ -1949,27 +2188,40 @@ else:
                                         if allergen:
                                             user_allergen_names.append(allergen.name)
                                     
-                                    new_plan = generate_daily_plan(
+                                    # Получаем цели
+                                    user_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                                    
+                                    # Генерируем недельный план
+                                    weekly_plan = generate_weekly_plan(
                                         user_goal.target_calories if user_goal else 2000,
                                         user_goal.target_protein if user_goal else 150,
                                         user_goal.target_fat if user_goal else 70,
                                         user_goal.target_carbs if user_goal else 250,
                                         user_allergen_names,
+                                        favorites,
+                                        dislikes,
+                                        meals_per_day,
+                                        settings.min_favorite_meals,
+                                        serving_distribution,
                                         get_all_foods(),
                                         session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
                                     )
                                     
-                                    if 'error' in new_plan:
-                                        st.error(new_plan['error'])
+                                    if 'error' in weekly_plan:
+                                        st.error(weekly_plan['error'])
                                     else:
-                                        # Сохраняем в базу!
+                                        # Сохраняем план для этого дня
+                                        day_plan = weekly_plan.get(i, {})
+                                        
                                         new_record = GeneratedPlan(
                                             user_id=current_user.user_id,
-                                            date=d_date,
-                                            breakfast_json=json.dumps(new_plan.get('breakfast', [])),
-                                            lunch_json=json.dumps(new_plan.get('lunch', [])),
-                                            dinner_json=json.dumps(new_plan.get('dinner', []))
+                                            date=d_date
                                         )
+                                        
+                                        for meal_num in range(1, meals_per_day + 1):
+                                            meal_key = f"meal_{meal_num}"
+                                            setattr(new_record, f"meal_{meal_num}_json", json.dumps(day_plan.get(meal_key, [])))
+                                        
                                         session.add(new_record)
                                         session.commit()
                                         st.rerun()
