@@ -119,7 +119,7 @@ else:
             st.markdown("---")
             page = st.radio(
                 "Навигация", 
-                ["🏠 Главная", "👤 Профиль", "🥗 Моя еда", "🍎 Питание", "🏋️ Тренировки", "🩺 Анализы", "📅 Мой календарь", "📊 Прогресс"]
+                ["🏠 Главная", "👤 Профиль", "🍎 Питание", "🏋️ Тренировки", "📅 Мой календарь"]
             )
             st.markdown("---")
             if st.button("🚪 Выйти из аккаунта", width='stretch'):
@@ -235,462 +235,815 @@ else:
         # СТРАНИЦА ПРОФИЛЯ (Личные данные и замеры)
         # =========================================================================
         elif page == "👤 Профиль":
-            st.header("👤 Настройки профиля и замеры")
+            st.header("👤 Профиль пользователя")
             
-            # ---------------------------------------------------------------------
-            # ФОРМА 1: ЛИЧНЫЕ ДАННЫЕ
-            # ---------------------------------------------------------------------
-            st.subheader("📝 Личные данные")
-            st.caption("Эти данные используются для расчета BMR, TDEE и возраста.")
+            # Создаем верхние вкладки
+            tab_personal, tab_analyses, tab_progress = st.tabs([
+                "📝 Личные данные и замеры", 
+                "🩺 Медицинские анализы", 
+                "📊 Прогресс и аналитика"
+            ])
             
-            with st.form("profile_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    # Определяем индекс для пола (0 - male, 1 - female)
-                    gender_idx = 0 if (current_user.gender or "").lower() in ["male", "м", "мужской"] else 1
-                    gender = st.selectbox(
-                        "Пол", 
-                        ["male", "female"], 
-                        index=gender_idx,
-                        format_func=lambda x: "👨 Мужской" if x == "male" else "👩 Женский"
-                    )
-                    
-                    # Дата рождения (по умолчанию 01.01.2000, если не задана)
-                    default_bd = current_user.birth_date or date(2000, 1, 1)
-                    birth_date = st.date_input("Дата рождения", value=default_bd)
+            with tab_personal:
+                st.header("👤 Настройки профиля и замеры")
                 
-                with col2:
-                    # Рост (по умолчанию 170, если не задан)
-                    default_height = float(current_user.height or 170.0)
-                    height = st.number_input("Рост (см)", min_value=100.0, max_value=250.0, value=default_height, step=1.0)
+                # ---------------------------------------------------------------------
+                # ФОРМА 1: ЛИЧНЫЕ ДАННЫЕ
+                # ---------------------------------------------------------------------
+                st.subheader("📝 Личные данные")
+                st.caption("Эти данные используются для расчета BMR, TDEE и возраста.")
                 
-                submit_profile = st.form_submit_button("💾 Сохранить личные данные", width='stretch')
-                
-                if submit_profile:
-                    current_user.gender = gender
-                    current_user.birth_date = birth_date
-                    current_user.height = height
-                    session.commit()
-                    st.success("✅ Личные данные успешно обновлены!")
-                    st.rerun()
-            
-            st.markdown("---")
-            
-            # ---------------------------------------------------------------------
-            # ФОРМА 2: ДОБАВЛЕНИЕ ЗАМЕРА ВЕСА
-            # ---------------------------------------------------------------------
-            st.subheader("⚖️ Добавить новый замер")
-            
-            with st.form("measurement_form"):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    meas_date = st.date_input("Дата замера", value=date.today())
-                with col2:
-                    weight = st.number_input("Вес (кг)", min_value=30.0, max_value=300.0, step=0.1)
-                with col3:
-                    fat_percent = st.number_input("Процент жира (%)", min_value=0.0, max_value=60.0, step=0.1, value=0.0)
-                
-                muscle_mass = st.number_input("Мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
-                
-                submit_meas = st.form_submit_button("➕ Добавить замер", type="primary", width='stretch')
-                
-                if submit_meas:
-                    new_meas = UserMeasurement(
-                        user_id=current_user.user_id,
-                        date=meas_date,
-                        weight=weight,
-                        fat_percent=fat_percent if fat_percent > 0 else None,
-                        muscle_mass=muscle_mass if muscle_mass > 0 else None
-                    )
-                    session.add(new_meas)
-                    session.commit()
-                    st.success("✅ Замер веса успешно добавлен! Теперь на Главной странице обновятся расчеты.")
-                    st.rerun()
-            
-            st.markdown("---")
-            
-            # ---------------------------------------------------------------------
-            # ИСТОРИЯ ЗАМЕРОВ
-            # ---------------------------------------------------------------------
-            st.subheader("📜 История ваших замеров")
-            
-            measurements = session.query(UserMeasurement).filter(
-                UserMeasurement.user_id == current_user.user_id
-            ).order_by(UserMeasurement.date.desc()).all()
-            
-            if measurements:
-                # Создаем красивую таблицу через pandas (Streamlit это любит)
-                import pandas as pd
-                data = []
-                for m in measurements:
-                    data.append({
-                        "Дата": m.date.strftime("%d.%m.%Y"),
-                        "Вес (кг)": m.weight,
-                        # Явно преобразуем в строку или ставим прочерк, чтобы не было смешения типов float и str
-                        "Жир (%)": f"{m.fat_percent}" if m.fat_percent is not None else "-",
-                        "Мышцы (кг)": f"{m.muscle_mass}" if m.muscle_mass is not None else "-"
-                    })
-                df = pd.DataFrame(data)
-                st.dataframe(df, width='stretch', hide_index=True)
-            else:
-                st.info("📭 Замеров пока нет. Добавьте первый замер выше!")
-            st.markdown("---")
-            
-            # ---------------------------------------------------------------------
-            # ФОРМА 3: УМНЫЕ ЦЕЛИ (Расчет макросов на основе желаемого веса)
-            # ---------------------------------------------------------------------
-            st.subheader("🎯 Целевые показатели")
-            st.caption("Укажи, к какому весу ты стремишься, и приложение само рассчитает идеальные КБЖУ.")
-            
-            # Проверяем, есть ли базовые данные для расчета
-            latest_meas = session.query(UserMeasurement).filter(
-                UserMeasurement.user_id == current_user.user_id
-            ).order_by(UserMeasurement.date.desc()).first()
-            
-            if not latest_meas or not latest_meas.weight or not current_user.height or not current_user.birth_date:
-                st.warning("⚠️ Сначала заполни рост, дату рождения и добавь хотя бы один замер веса в разделе выше, чтобы мы могли рассчитать цели!")
-            else:
-                current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
-                
-                with st.form("smart_goals_form"):
+                with st.form("profile_form"):
                     col1, col2 = st.columns(2)
                     with col1:
-                        def_target_w = current_goal.target_weight if current_goal and current_goal.target_weight else latest_meas.weight
-                        target_weight = st.number_input("Желаемый вес (кг)", min_value=30.0, max_value=300.0, value=float(def_target_w), step=0.5)
+                        # Определяем индекс для пола (0 - male, 1 - female)
+                        gender_idx = 0 if (current_user.gender or "").lower() in ["male", "м", "мужской"] else 1
+                        gender = st.selectbox(
+                            "Пол", 
+                            ["male", "female"], 
+                            index=gender_idx,
+                            format_func=lambda x: "👨 Мужской" if x == "male" else "👩 Женский"
+                        )
                         
-                        def_target_m = current_goal.target_muscle_mass if current_goal and current_goal.target_muscle_mass else (latest_meas.muscle_mass or 0.0)
-                        target_muscle = st.number_input("Желаемая мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, value=float(def_target_m), step=0.5)
+                        # Дата рождения (по умолчанию 01.01.2000, если не задана)
+                        default_bd = current_user.birth_date or date(2000, 1, 1)
+                        birth_date = st.date_input("Дата рождения", value=default_bd)
                     
                     with col2:
-                        def_target_f = current_goal.target_fat_percent if current_goal and current_goal.target_fat_percent else (latest_meas.fat_percent or 15.0)
-                        target_fat_pct = st.number_input("Желаемый % жира", min_value=5.0, max_value=50.0, value=float(def_target_f), step=0.5)
-                        
-                        activity_levels = {
-                            "🛋️ Сидячий (1.2)": 1.2,
-                            "🚶 Легкая активность (1.375)": 1.375,
-                            "🏃 Умеренная активность (1.55)": 1.55,
-                            "🏋️ Высокая активность (1.725)": 1.725,
-                        }
-                        # Дефолтное значение активности
-                        default_act_idx = 2 
-                        selected_activity = st.selectbox("Твой уровень активности:", list(activity_levels.keys()), index=default_act_idx)
-                        activity_mult = activity_levels[selected_activity]
+                        # Рост (по умолчанию 170, если не задан)
+                        default_height = float(current_user.height or 170.0)
+                        height = st.number_input("Рост (см)", min_value=100.0, max_value=250.0, value=default_height, step=1.0)
                     
-                    submit_goals = st.form_submit_button("🧮 Рассчитать и сохранить цели", type="primary", width='stretch')
+                    submit_profile = st.form_submit_button("💾 Сохранить личные данные", width='stretch')
                     
-                    if submit_goals:
-                        # Вызываем нашу новую умную функцию!
-                        age = calculate_age(current_user.birth_date)
-                        macros = calculate_macro_goals(
-                            current_weight=latest_meas.weight,
-                            target_weight=target_weight,
-                            height=current_user.height,
-                            age=age,
-                            gender=current_user.gender or 'male',
-                            activity_multiplier=activity_mult
-                        )
-                        
-                        if current_goal:
-                            current_goal.target_weight = target_weight
-                            current_goal.target_muscle_mass = target_muscle if target_muscle > 0 else None
-                            current_goal.target_fat_percent = target_fat_pct
-                            current_goal.target_calories = macros['calories']
-                            current_goal.target_protein = macros['protein']
-                            current_goal.target_fat = macros['fat']
-                            current_goal.target_carbs = macros['carbs']
-                        else:
-                            new_goal = UserGoal(
-                                user_id=current_user.user_id,
-                                target_weight=target_weight,
-                                target_muscle_mass=target_muscle if target_muscle > 0 else None,
-                                target_fat_percent=target_fat_pct,
-                                target_calories=macros['calories'],
-                                target_protein=macros['protein'],
-                                target_fat=macros['fat'],
-                                target_carbs=macros['carbs']
-                            )
-                            session.add(new_goal)
-                        
+                    if submit_profile:
+                        current_user.gender = gender
+                        current_user.birth_date = birth_date
+                        current_user.height = height
                         session.commit()
-                        
-                        st.success("✅ Цели рассчитаны и сохранены!")
-                        st.info(f"📊 **Твоя новая норма:** {macros['calories']} ккал | Б: {macros['protein']}г | Ж: {macros['fat']}г | У: {macros['carbs']}г")
+                        st.success("✅ Личные данные успешно обновлены!")
                         st.rerun()
+                
                 st.markdown("---")
-                st.subheader("🧪 Цели по микронутриентам")
-                st.caption("Приложение предложило нормы на основе твоего пола и веса. Ты можешь их изменить.")
                 
-                # Получаем текущие цели или генерируем дефолтные
-                current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
-                default_micros = get_standard_micro_goals(current_user.gender or 'male', latest_meas.weight)
+                # ---------------------------------------------------------------------
+                # ФОРМА 2: ДОБАВЛЕНИЕ ЗАМЕРА ВЕСА
+                # ---------------------------------------------------------------------
+                st.subheader("⚖️ Добавить новый замер")
                 
-                with st.form("micro_goals_form"):
-                    cols = st.columns(4)
-                    micro_fields = [
-                        ('Витамин A (мкг)', 'target_vit_a', default_micros['vit_a']),
-                        ('Витамин C (мг)', 'target_vit_c', default_micros['vit_c']),
-                        ('Витамин D (мкг)', 'target_vit_d', default_micros['vit_d']),
-                        ('Витамин E (мг)', 'target_vit_e', default_micros['vit_e']),
-                        ('Витамин K (мкг)', 'target_vit_k', default_micros['vit_k']),
-                        ('Витамины B (мг)', 'target_vit_b', default_micros['vit_b']),
-                        ('Железо (мг)', 'target_iron', default_micros['iron']),
-                        ('Кальций (мг)', 'target_calcium', default_micros['calcium']),
-                        ('Магний (мг)', 'target_magnesium', default_micros['magnesium']),
-                        ('Цинк (мг)', 'target_zinc', default_micros['zinc']),
-                        ('Йод (мкг)', 'target_iodine', default_micros['iodine']),
-                        ('Селен (мкг)', 'target_selenium', default_micros['selenium']),
-                    ]
+                with st.form("measurement_form"):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        meas_date = st.date_input("Дата замера", value=date.today())
+                    with col2:
+                        weight = st.number_input("Вес (кг)", min_value=30.0, max_value=300.0, step=0.1)
+                    with col3:
+                        fat_percent = st.number_input("Процент жира (%)", min_value=0.0, max_value=60.0, step=0.1, value=0.0)
                     
-                    # Динамически создаем поля ввода
-                    micro_inputs = {}
-                    for i, (label, db_field, default_val) in enumerate(micro_fields):
-                        with cols[i % 4]:
-                            current_val = getattr(current_goal, db_field) if current_goal and getattr(current_goal, db_field) else default_val
-                            micro_inputs[db_field] = st.number_input(label, min_value=0.0, value=float(current_val), step=1.0, key=f"micro_{db_field}")
+                    muscle_mass = st.number_input("Мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
                     
-                    submit_micro = st.form_submit_button("💾 Сохранить цели по микронутриентам", width='stretch')
+                    submit_meas = st.form_submit_button("➕ Добавить замер", type="primary", width='stretch')
                     
-                    if submit_micro:
-                        if not current_goal:
-                            current_goal = UserGoal(user_id=current_user.user_id)
-                            session.add(current_goal)
-                        
-                        for db_field, value in micro_inputs.items():
-                            setattr(current_goal, db_field, value if value > 0 else None)
-                        
-                        session.commit()
-                        st.success("✅ Цели по микронутриентам обновлены!")
-                        st.rerun()
-            st.markdown("---")
-            
-            # ---------------------------------------------------------------------
-            # РАЗДЕЛ: АЛЛЕРГИИ И НЕПЕРЕНОСИМОСТИ
-            # ---------------------------------------------------------------------
-            st.subheader("⚠️ Аллергии и пищевые непереносимости")
-            st.caption("Отметь продукты, которые тебе нельзя употреблять. Это важно для будущего автоматического построения рациона.")
-            
-            # Получаем список всех доступных аллергенов из справочника
-            all_allergens = session.query(Allergen).order_by(Allergen.name).all()
-            
-            # Если справочник пуст, создаем базовые аллергены
-            if not all_allergens:
-                common_allergens = [
-                    'milk', 'gluten', 'nuts', 'eggs', 'soy', 
-                    'fish', 'shellfish', 'peanuts', 'wheat', 'dairy'
-                ]
-                for allergen_name in common_allergens:
-                    new_allergen = Allergen(name=allergen_name)
-                    session.add(new_allergen)
-                session.commit()
-                all_allergens = session.query(Allergen).order_by(Allergen.name).all()
-            
-            # Получаем текущие аллергии пользователя
-            user_allergies = session.query(UserAllergy).filter(
-                UserAllergy.user_id == current_user.user_id
-            ).all()
-            user_allergen_ids = {ua.allergen_id for ua in user_allergies}
-            
-            # Создаем словарь для отображения (английский -> русский)
-            allergen_display_names = {
-                'milk': '🥛 Молоко и молочные продукты',
-                'gluten': '🌾 Глютен (пшеница, рожь, ячмень)',
-                'nuts': '🌰 Орехи (все виды)',
-                'eggs': ' Яйца',
-                'soy': '🫘 Соя и соевые продукты',
-                'fish': '🐟 Рыба',
-                'shellfish': '🦐 Морепродукты (креветки, крабы)',
-                'peanuts': ' Арахис',
-                'wheat': '🌾 Пшеница',
-                'dairy': '🧀 Молочные продукты (сыр, йогурт)'
-            }
-            
-            with st.form("allergies_form"):
-                # Показываем чекбоксы в 2 колонки
-                cols_allergy = st.columns(2)
-                selected_allergens = []
-                
-                for i, allergen in enumerate(all_allergens):
-                    with cols_allergy[i % 2]:
-                        display_name = allergen_display_names.get(allergen.name, allergen.name)
-                        is_checked = allergen.allergen_id in user_allergen_ids
-                        
-                        if st.checkbox(display_name, value=is_checked, key=f"allergy_{allergen.allergen_id}"):
-                            selected_allergens.append(allergen.allergen_id)
-                
-                submit_allergies = st.form_submit_button(" Сохранить аллергии", type="primary", width='stretch')
-                
-                if submit_allergies:
-                    # Удаляем старые аллергии
-                    for ua in user_allergies:
-                        session.delete(ua)
-                    
-                    # Добавляем новые выбранные аллергии
-                    for allergen_id in selected_allergens:
-                        new_allergy = UserAllergy(
+                    if submit_meas:
+                        new_meas = UserMeasurement(
                             user_id=current_user.user_id,
-                            allergen_id=allergen_id
+                            date=meas_date,
+                            weight=weight,
+                            fat_percent=fat_percent if fat_percent > 0 else None,
+                            muscle_mass=muscle_mass if muscle_mass > 0 else None
                         )
-                        session.add(new_allergy)
-                    
-                    session.commit()
-                    st.success(f"✅ Аллергии обновлены! Выбрано: {len(selected_allergens)}")
-                    st.rerun()
-            
-            # Показываем текущие аллергии красивым списком
-            if user_allergies:
-                st.markdown("##### 📋 Твои текущие аллергии:")
-                allergy_names = []
-                for ua in user_allergies:
-                    allergen = session.query(Allergen).filter(Allergen.allergen_id == ua.allergen_id).first()
-                    if allergen:
-                        display_name = allergen_display_names.get(allergen.name, allergen.name)
-                        allergy_names.append(display_name)
-                
-                for allergy_name in sorted(allergy_names):
-                    st.write(f"• {allergy_name}")
-            else:
-                st.info("✅ У тебя пока нет отмеченных аллергий.")
-
-        # =========================================================================
-        # СТРАНИЦА "МОЯ ЕДА" (Умный справочник с поиском и фильтрацией)
-        # =========================================================================
-        elif page == "🥗 Моя еда":
-            st.header("🥗 Справочник моей еды")
-            st.info("💡 Здесь отображаются все продукты. Ты можешь искать их по названию и удалять только те, что добавил сам.")
-            
-            # 1. Получаем все продукты
-            base_foods = get_all_foods()
-            custom_foods = session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
-            all_foods = base_foods + custom_foods
-            
-            # 2. Вкладки
-            tab1, tab2 = st.tabs(["🥬 Базовые продукты", "🍲 Готовые блюда"])
-            
-            # Универсальная функция для рендера содержимого вкладки
-            def render_tab_content(is_basic_target):
-                # А. Фильтрация по типу (базовый/готовый)
-                filtered_foods = [f for f in all_foods if getattr(f, 'is_basic', True) == is_basic_target]
-                
-                # Б. Поисковая строка (уникальный ключ для каждой вкладки)
-                search_query = st.text_input(
-                    "🔍 Поиск по названию:", 
-                    key=f"search_{'basic' if is_basic_target else 'prepared'}",
-                    placeholder="Введите название продукта..."
-                )
-                
-                if search_query:
-                    filtered_foods = [f for f in filtered_foods if search_query.lower() in f.name.lower()]
-                
-                if not filtered_foods:
-                    st.info(f"📭 В этой категории ничего не найдено.")
-                    return
-                
-                import pandas as pd
-                
-                data_macros = []
-                data_micros = []
-                
-                for f in filtered_foods:
-                    # Категории (только для base_foods)
-                    categories = get_food_categories(f.food_id) if hasattr(f, 'food_id') else []
-                    cat_display = get_display_categories(f)
-                    is_custom_tag = " *(Твой)*" if hasattr(f, 'custom_food_id') else ""
-                    
-                    data_macros.append({
-                        "Название": f"{f.name}{is_custom_tag}",
-                        "Категории": cat_display,
-                        "Ккал": f.calories_per_100g,
-                        "Белки": f.protein_per_100g,
-                        "Жиры": f.fat_per_100g,
-                        "Углеводы": f.carbs_per_100g,
-                        "ID": f.food_id if hasattr(f, 'food_id') else f.custom_food_id
-                    })
-                    
-                    data_micros.append({
-                        "Название": f"{f.name}{is_custom_tag}",
-                        "Вит.А": f.vitamin_a or 0,
-                        "Вит.C": f.vitamin_c or 0,
-                        "Вит.D": f.vitamin_d or 0,
-                        "Вит.E": f.vitamin_e or 0,
-                        "Вит.K": f.vitamin_k or 0,
-                        "Вит.B": f.vitamin_b_complex or 0,
-                        "Железо": f.iron or 0,
-                        "Кальций": f.calcium or 0,
-                        "Магний": f.magnesium or 0,
-                        "Цинк": f.zinc or 0,
-                        "Йод": f.iodine or 0,
-                        "Селен": f.selenium or 0,
-                        "ID": f.food_id if hasattr(f, 'food_id') else f.custom_food_id
-                    })
-                
-                df_macros = pd.DataFrame(data_macros)
-                df_micros = pd.DataFrame(data_micros)
-                
-                # В. Компактная таблица макронутриентов с форматированием
-                st.subheader("📊 Макронутриенты (на 100г)")
-                st.dataframe(
-                    df_macros[["Название", "Категории", "Ккал", "Белки", "Жиры", "Углеводы"]], 
-                    width='stretch', 
-                    hide_index=True,
-                    column_config={
-                        "Ккал": st.column_config.NumberColumn(format="%.0f"),
-                        "Белки": st.column_config.NumberColumn(format="%.1f г"),
-                        "Жиры": st.column_config.NumberColumn(format="%.1f г"),
-                        "Углеводы": st.column_config.NumberColumn(format="%.1f г"),
-                    }
-                )
-                
-                # Г. Компактная таблица микронутриентов внутри expander
-                with st.expander("🧪 Показать микронутриенты", expanded=False):
-                    st.dataframe(
-                        df_micros.drop(columns=["ID"]), 
-                        width='stretch', 
-                        hide_index=True,
-                        column_config={col: st.column_config.NumberColumn(format="%.1f") for col in df_micros.columns if col != "Название"}
-                    )
+                        session.add(new_meas)
+                        session.commit()
+                        st.success("✅ Замер веса успешно добавлен! Теперь на Главной странице обновятся расчеты.")
+                        st.rerun()
                 
                 st.markdown("---")
-                st.subheader("🗑️ Управление справочником")
-                st.caption("Здесь можно удалить только *твои* добавленные продукты, отображаемые в этой вкладке.")
                 
-                # Д. Фильтруем только кастомные продукты из текущего отфильтрованного списка
-                custom_filtered = [f for f in filtered_foods if hasattr(f, 'custom_food_id')]
+                # ---------------------------------------------------------------------
+                # ИСТОРИЯ ЗАМЕРОВ
+                # ---------------------------------------------------------------------
+                st.subheader("📜 История ваших замеров")
                 
-                if custom_filtered:
-                    with st.form(f"delete_food_form_{'basic' if is_basic_target else 'prepared'}"):
-                        food_names = [f.name for f in custom_filtered]
-                        food_to_delete = st.selectbox("Выбери продукт для удаления:", food_names)
-                        
-                        col1, col2 = st.columns([1, 3])
-                        with col1:
-                            confirm_delete = st.form_submit_button("Удалить", type="primary")
-                        
-                        if confirm_delete:
-                            food_obj = session.query(CustomFood).filter(
-                                CustomFood.name == food_to_delete, 
-                                CustomFood.user_id == current_user.user_id
-                            ).first()
-                            if food_obj:
-                                session.delete(food_obj)
-                                session.commit()
-                                st.success(f"✅ Продукт '{food_to_delete}' успешно удален!")
-                                st.rerun()
+                measurements = session.query(UserMeasurement).filter(
+                    UserMeasurement.user_id == current_user.user_id
+                ).order_by(UserMeasurement.date.desc()).all()
+                
+                if measurements:
+                    # Создаем красивую таблицу через pandas (Streamlit это любит)
+                    import pandas as pd
+                    data = []
+                    for m in measurements:
+                        data.append({
+                            "Дата": m.date.strftime("%d.%m.%Y"),
+                            "Вес (кг)": m.weight,
+                            # Явно преобразуем в строку или ставим прочерк, чтобы не было смешения типов float и str
+                            "Жир (%)": f"{m.fat_percent}" if m.fat_percent is not None else "-",
+                            "Мышцы (кг)": f"{m.muscle_mass}" if m.muscle_mass is not None else "-"
+                        })
+                    df = pd.DataFrame(data)
+                    st.dataframe(df, width='stretch', hide_index=True)
                 else:
-                    st.info("📭 В этой категории нет твоих личных продуктов для удаления.")
+                    st.info("📭 Замеров пока нет. Добавьте первый замер выше!")
+                st.markdown("---")
+                
+                # ---------------------------------------------------------------------
+                # ФОРМА 3: УМНЫЕ ЦЕЛИ (Расчет макросов на основе желаемого веса)
+                # ---------------------------------------------------------------------
+                st.subheader("🎯 Целевые показатели")
+                st.caption("Укажи, к какому весу ты стремишься, и приложение само рассчитает идеальные КБЖУ.")
+                
+                # Проверяем, есть ли базовые данные для расчета
+                latest_meas = session.query(UserMeasurement).filter(
+                    UserMeasurement.user_id == current_user.user_id
+                ).order_by(UserMeasurement.date.desc()).first()
+                
+                if not latest_meas or not latest_meas.weight or not current_user.height or not current_user.birth_date:
+                    st.warning("⚠️ Сначала заполни рост, дату рождения и добавь хотя бы один замер веса в разделе выше, чтобы мы могли рассчитать цели!")
+                else:
+                    current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                    
+                    with st.form("smart_goals_form"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            def_target_w = current_goal.target_weight if current_goal and current_goal.target_weight else latest_meas.weight
+                            target_weight = st.number_input("Желаемый вес (кг)", min_value=30.0, max_value=300.0, value=float(def_target_w), step=0.5)
+                            
+                            def_target_m = current_goal.target_muscle_mass if current_goal and current_goal.target_muscle_mass else (latest_meas.muscle_mass or 0.0)
+                            target_muscle = st.number_input("Желаемая мышечная масса (кг) (необязательно)", min_value=0.0, max_value=200.0, value=float(def_target_m), step=0.5)
+                        
+                        with col2:
+                            def_target_f = current_goal.target_fat_percent if current_goal and current_goal.target_fat_percent else (latest_meas.fat_percent or 15.0)
+                            target_fat_pct = st.number_input("Желаемый % жира", min_value=5.0, max_value=50.0, value=float(def_target_f), step=0.5)
+                            
+                            activity_levels = {
+                                "🛋️ Сидячий (1.2)": 1.2,
+                                "🚶 Легкая активность (1.375)": 1.375,
+                                "🏃 Умеренная активность (1.55)": 1.55,
+                                "🏋️ Высокая активность (1.725)": 1.725,
+                            }
+                            # Дефолтное значение активности
+                            default_act_idx = 2 
+                            selected_activity = st.selectbox("Твой уровень активности:", list(activity_levels.keys()), index=default_act_idx)
+                            activity_mult = activity_levels[selected_activity]
+                        
+                        submit_goals = st.form_submit_button("🧮 Рассчитать и сохранить цели", type="primary", width='stretch')
+                        
+                        if submit_goals:
+                            # Вызываем нашу новую умную функцию!
+                            age = calculate_age(current_user.birth_date)
+                            macros = calculate_macro_goals(
+                                current_weight=latest_meas.weight,
+                                target_weight=target_weight,
+                                height=current_user.height,
+                                age=age,
+                                gender=current_user.gender or 'male',
+                                activity_multiplier=activity_mult
+                            )
+                            
+                            if current_goal:
+                                current_goal.target_weight = target_weight
+                                current_goal.target_muscle_mass = target_muscle if target_muscle > 0 else None
+                                current_goal.target_fat_percent = target_fat_pct
+                                current_goal.target_calories = macros['calories']
+                                current_goal.target_protein = macros['protein']
+                                current_goal.target_fat = macros['fat']
+                                current_goal.target_carbs = macros['carbs']
+                            else:
+                                new_goal = UserGoal(
+                                    user_id=current_user.user_id,
+                                    target_weight=target_weight,
+                                    target_muscle_mass=target_muscle if target_muscle > 0 else None,
+                                    target_fat_percent=target_fat_pct,
+                                    target_calories=macros['calories'],
+                                    target_protein=macros['protein'],
+                                    target_fat=macros['fat'],
+                                    target_carbs=macros['carbs']
+                                )
+                                session.add(new_goal)
+                            
+                            session.commit()
+                            
+                            st.success("✅ Цели рассчитаны и сохранены!")
+                            st.info(f"📊 **Твоя новая норма:** {macros['calories']} ккал | Б: {macros['protein']}г | Ж: {macros['fat']}г | У: {macros['carbs']}г")
+                            st.rerun()
+                    st.markdown("---")
+                    st.subheader("🧪 Цели по микронутриентам")
+                    st.caption("Приложение предложило нормы на основе твоего пола и веса. Ты можешь их изменить.")
+                    
+                    # Получаем текущие цели или генерируем дефолтные
+                    current_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
+                    default_micros = get_standard_micro_goals(current_user.gender or 'male', latest_meas.weight)
+                    
+                    with st.form("micro_goals_form"):
+                        cols = st.columns(4)
+                        micro_fields = [
+                            ('Витамин A (мкг)', 'target_vit_a', default_micros['vit_a']),
+                            ('Витамин C (мг)', 'target_vit_c', default_micros['vit_c']),
+                            ('Витамин D (мкг)', 'target_vit_d', default_micros['vit_d']),
+                            ('Витамин E (мг)', 'target_vit_e', default_micros['vit_e']),
+                            ('Витамин K (мкг)', 'target_vit_k', default_micros['vit_k']),
+                            ('Витамины B (мг)', 'target_vit_b', default_micros['vit_b']),
+                            ('Железо (мг)', 'target_iron', default_micros['iron']),
+                            ('Кальций (мг)', 'target_calcium', default_micros['calcium']),
+                            ('Магний (мг)', 'target_magnesium', default_micros['magnesium']),
+                            ('Цинк (мг)', 'target_zinc', default_micros['zinc']),
+                            ('Йод (мкг)', 'target_iodine', default_micros['iodine']),
+                            ('Селен (мкг)', 'target_selenium', default_micros['selenium']),
+                        ]
+                        
+                        # Динамически создаем поля ввода
+                        micro_inputs = {}
+                        for i, (label, db_field, default_val) in enumerate(micro_fields):
+                            with cols[i % 4]:
+                                current_val = getattr(current_goal, db_field) if current_goal and getattr(current_goal, db_field) else default_val
+                                micro_inputs[db_field] = st.number_input(label, min_value=0.0, value=float(current_val), step=1.0, key=f"micro_{db_field}")
+                        
+                        submit_micro = st.form_submit_button("💾 Сохранить цели по микронутриентам", width='stretch')
+                        
+                        if submit_micro:
+                            if not current_goal:
+                                current_goal = UserGoal(user_id=current_user.user_id)
+                                session.add(current_goal)
+                            
+                            for db_field, value in micro_inputs.items():
+                                setattr(current_goal, db_field, value if value > 0 else None)
+                            
+                            session.commit()
+                            st.success("✅ Цели по микронутриентам обновлены!")
+                            st.rerun()
+                st.markdown("---")
+                
+                # ---------------------------------------------------------------------
+                # РАЗДЕЛ: АЛЛЕРГИИ И НЕПЕРЕНОСИМОСТИ
+                # ---------------------------------------------------------------------
+                st.subheader("⚠️ Аллергии и пищевые непереносимости")
+                st.caption("Отметь продукты, которые тебе нельзя употреблять. Это важно для будущего автоматического построения рациона.")
+                
+                # Получаем список всех доступных аллергенов из справочника
+                all_allergens = session.query(Allergen).order_by(Allergen.name).all()
+                
+                # Если справочник пуст, создаем базовые аллергены
+                if not all_allergens:
+                    common_allergens = [
+                        'milk', 'gluten', 'nuts', 'eggs', 'soy', 
+                        'fish', 'shellfish', 'peanuts', 'wheat', 'dairy'
+                    ]
+                    for allergen_name in common_allergens:
+                        new_allergen = Allergen(name=allergen_name)
+                        session.add(new_allergen)
+                    session.commit()
+                    all_allergens = session.query(Allergen).order_by(Allergen.name).all()
+                
+                # Получаем текущие аллергии пользователя
+                user_allergies = session.query(UserAllergy).filter(
+                    UserAllergy.user_id == current_user.user_id
+                ).all()
+                user_allergen_ids = {ua.allergen_id for ua in user_allergies}
+                
+                # Создаем словарь для отображения (английский -> русский)
+                allergen_display_names = {
+                    'milk': '🥛 Молоко и молочные продукты',
+                    'gluten': '🌾 Глютен (пшеница, рожь, ячмень)',
+                    'nuts': '🌰 Орехи (все виды)',
+                    'eggs': ' Яйца',
+                    'soy': '🫘 Соя и соевые продукты',
+                    'fish': '🐟 Рыба',
+                    'shellfish': '🦐 Морепродукты (креветки, крабы)',
+                    'peanuts': ' Арахис',
+                    'wheat': '🌾 Пшеница',
+                    'dairy': '🧀 Молочные продукты (сыр, йогурт)'
+                }
+                
+                with st.form("allergies_form"):
+                    # Показываем чекбоксы в 2 колонки
+                    cols_allergy = st.columns(2)
+                    selected_allergens = []
+                    
+                    for i, allergen in enumerate(all_allergens):
+                        with cols_allergy[i % 2]:
+                            display_name = allergen_display_names.get(allergen.name, allergen.name)
+                            is_checked = allergen.allergen_id in user_allergen_ids
+                            
+                            if st.checkbox(display_name, value=is_checked, key=f"allergy_{allergen.allergen_id}"):
+                                selected_allergens.append(allergen.allergen_id)
+                    
+                    submit_allergies = st.form_submit_button(" Сохранить аллергии", type="primary", width='stretch')
+                    
+                    if submit_allergies:
+                        # Удаляем старые аллергии
+                        for ua in user_allergies:
+                            session.delete(ua)
+                        
+                        # Добавляем новые выбранные аллергии
+                        for allergen_id in selected_allergens:
+                            new_allergy = UserAllergy(
+                                user_id=current_user.user_id,
+                                allergen_id=allergen_id
+                            )
+                            session.add(new_allergy)
+                        
+                        session.commit()
+                        st.success(f"✅ Аллергии обновлены! Выбрано: {len(selected_allergens)}")
+                        st.rerun()
+                
+                # Показываем текущие аллергии красивым списком
+                if user_allergies:
+                    st.markdown("##### 📋 Твои текущие аллергии:")
+                    allergy_names = []
+                    for ua in user_allergies:
+                        allergen = session.query(Allergen).filter(Allergen.allergen_id == ua.allergen_id).first()
+                        if allergen:
+                            display_name = allergen_display_names.get(allergen.name, allergen.name)
+                            allergy_names.append(display_name)
+                    
+                    for allergy_name in sorted(allergy_names):
+                        st.write(f"• {allergy_name}")
+                else:
+                    st.info("✅ У тебя пока нет отмеченных аллергий.")
 
-            # 3. Рендерим содержимое вкладок
-            with tab1:
-                render_tab_content(is_basic_target=True)
-            
-            with tab2:
-                render_tab_content(is_basic_target=False)              
+                    pass 
+
+            with tab_analyses:
+                # =========================================================================
+                # СТРАНИЦА МЕДИЦИНСКИХ АНАЛИЗОВ
+                # =========================================================================
+
+                st.header("🩺 Дневник медицинских анализов")
+                st.info("💡 Заполняйте только те показатели, которые вы сдали. Приложение запомнит единицы измерения и построит график динамики.")
+                
+                # СЛОВАРЬ ПОКАЗАТЕЛЕЙ (Можешь легко добавить сюда остальные из твоего списка)
+                MEDICAL_INDICATORS = {
+                    "🩸 Общий анализ крови": {
+                        "Гемоглобин": "г/л",
+                        "Эритроциты": "10^12/л",
+                        "Лейкоциты": "10^9/л",
+                        "Тромбоциты": "10^9/л",
+                        "Гематокрит": "%",
+                        "MCV (средний объем эритроцита)": "фл",
+                        "MCH (среднее содержание Hb)": "пг"
+                    },
+                    "🧪 Биохимический анализ крови": {
+                        "Общий белок": "г/л",
+                        "Альбумин": "г/л",
+                        "Глюкоза": "ммоль/л",
+                        "Холестерин общий": "ммоль/л",
+                        "Холестерин ЛПВП": "ммоль/л",
+                        "Холестерин ЛПНП": "ммоль/л",
+                        "Триглицериды": "ммоль/л",
+                        "АЛТ": "Ед/л",
+                        "АСТ": "Ед/л",
+                        "Билирубин общий": "мкмоль/л",
+                        "Креатинин": "мкмоль/л",
+                        "Мочевая кислота": "мкмоль/л",
+                        "Ферритин": "мкг/л",
+                        "Витамин D (25-OH)": "нг/мл",
+                        "ТТГ": "мкМЕ/мл"
+                    },
+                    "💧 Общий анализ мочи": {
+                        "Белок": "г/л",
+                        "Глюкоза": "ммоль/л",
+                        "Лейкоциты": "в п/зр",
+                        "Эритроциты": "в п/зр",
+                        "Удельный вес": ""
+                    }
+                }
+                
+                tab_input, tab_graph = st.tabs(["➕ Внести результаты", "📈 График динамики"])
+                
+                # ---------------------------------------------------------------------
+                # ВКЛАДКА 1: ВВОД ДАННЫХ
+                # ---------------------------------------------------------------------
+                with tab_input:
+                    test_date = st.date_input("📅 Дата сдачи анализов:", value=date.today())
+                    
+                    with st.form("medical_form"):
+                        for category, indicators in MEDICAL_INDICATORS.items():
+                            with st.expander(category):
+                                for name, unit in indicators.items():
+                                    unit_str = f" ({unit})" if unit else ""
+                                    
+                                    # ИСПРАВЛЕНИЕ: добавили {category} в ключ для уникальности
+                                    st.number_input(
+                                        f"{name}{unit_str}", 
+                                        min_value=0.0, 
+                                        value=0.0, 
+                                        step=0.1, 
+                                        key=f"med_{category}_{name}_{test_date}"
+                                    )
+                        
+                        submit_med = st.form_submit_button("💾 Сохранить результаты анализов", type="primary", width='stretch')
+                        
+                        if submit_med:
+                            saved_count = 0
+                            for category, indicators in MEDICAL_INDICATORS.items():
+                                for name, unit in indicators.items():
+                                    # ИСПРАВЛЕНИЕ: читаем по новому уникальному ключу
+                                    val = st.session_state[f"med_{category}_{name}_{test_date}"]
+                                    if val > 0.0:
+                                        # Проверяем, нет ли уже такой записи на эту дату (чтобы не дублировать при повторном нажатии)
+                                        existing = session.query(MedicalResult).filter(
+                                            MedicalResult.user_id == current_user.user_id,
+                                            MedicalResult.test_date == test_date,
+                                            MedicalResult.test_name == name
+                                        ).first()
+                                        
+                                        if existing:
+                                            existing.value = val # Обновляем, если уже есть
+                                        else:
+                                            new_result = MedicalResult(
+                                                user_id=current_user.user_id,
+                                                test_date=test_date,
+                                                test_category=category,
+                                                test_name=name,
+                                                value=val,
+                                                unit=unit
+                                            )
+                                            session.add(new_result)
+                                        saved_count += 1
+                            
+                            session.commit()
+                            st.success(f"✅ Успешно сохранено {saved_count} показателей за {test_date.strftime('%d.%m.%Y')}!")
+                            st.rerun()
+
+                # ---------------------------------------------------------------------
+                # ВКЛАДКА 2: ГРАФИК ДИНАМИКИ
+                # ---------------------------------------------------------------------
+                with tab_graph:
+                    st.subheader("📈 Динамика конкретного показателя")
+                    
+                    # Получаем список всех уникальных показателей, которые когда-либо сдавал этот пользователь
+                    user_results = session.query(MedicalResult).filter(
+                        MedicalResult.user_id == current_user.user_id
+                    ).all()
+                    
+                    if user_results:
+                        # Создаем уникальный отсортированный список названий
+                        unique_tests = sorted(list(set([r.test_name for r in user_results])))
+                        
+                        selected_test = st.selectbox("Выберите показатель для графика:", unique_tests)
+                        
+                        if selected_test:
+                            # Находим единицу измерения для этого показателя
+                            unit = next((r.unit for r in user_results if r.test_name == selected_test), "")
+                            unit_str = f" ({unit})" if unit else ""
+                            
+                            # Получаем историю по этому показателю, отсортированную по дате
+                            history = session.query(MedicalResult).filter(
+                                MedicalResult.user_id == current_user.user_id,
+                                MedicalResult.test_name == selected_test
+                            ).order_by(MedicalResult.test_date).all()
+                            
+                            if len(history) >= 1:
+                                import plotly.graph_objects as go
+                                
+                                dates = [h.test_date for h in history]
+                                values = [h.value for h in history]
+                                
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatter(
+                                    x=dates,
+                                    y=values,
+                                    mode='lines+markers',
+                                    name=selected_test,
+                                    line=dict(color='#9b59b6', width=3),
+                                    marker=dict(size=8),
+                                    hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Значение: %{y:.2f}' + unit_str + '<extra></extra>'
+                                ))
+                                
+                                fig.update_layout(
+                                    title=f'Динамика: {selected_test}',
+                                    xaxis_title='Дата',
+                                    yaxis_title=f'Значение{unit_str}',
+                                    hovermode='x unified',
+                                    height=500,
+                                    template='plotly_white'
+                                )
+                                
+                                st.plotly_chart(fig, width='stretch')
+                                
+                                # Таблица с историей
+                                import pandas as pd
+                                df_hist = pd.DataFrame([{
+                                    "Дата": h.test_date.strftime("%d.%m.%Y"),
+                                    "Значение": h.value,
+                                    "Ед. изм.": h.unit or "-"
+                                } for h in history])
+                                
+                                st.markdown("##### 📜 История значений:")
+                                st.dataframe(df_hist, width='stretch', hide_index=True)
+                            else:
+                                st.info("Недостаточно данных для построения графика.")
+                    else:
+                        st.info("📭 Вы еще не внесли ни одного результата анализов. Перейдите во вкладку 'Внести результаты'.")
+                pass
+
+            with tab_progress:
+                # ============================================================================
+                # СТРАНИЦА ПРОГРЕССА
+                # ============================================================================
+
+                st.header("📊 Прогресс и аналитика")
+                
+                user = session.query(User).first()
+                
+                if not user:
+                    st.error("Пользователь не найден!")
+                else:
+                    tab1, tab2, tab3, tab4 = st.tabs([
+                        "📈 Вес тела", 
+                        "💪 Силовые показатели", 
+                        " БЖУ за день",
+                        " Калории по дням"
+                    ])
+                    
+                    # ====================================================================
+                    # ВКЛАДКА 1: ГРАФИК ВЕСА ТЕЛА
+                    # ====================================================================
+                    with tab1:
+                        st.subheader(" Динамика веса тела")
+                        
+                        measurements = session.query(UserMeasurement).filter(
+                            UserMeasurement.user_id == current_user.user_id,
+                            UserMeasurement.weight.isnot(None)
+                        ).order_by(UserMeasurement.date).all()
+                        
+                        if measurements:
+                            import plotly.graph_objects as go
+                            
+                            dates = [m.date for m in measurements]
+                            weights = [m.weight for m in measurements]
+                            
+                            fig = go.Figure()
+                            
+                            fig.add_trace(go.Scatter(
+                                x=dates,
+                                y=weights,
+                                mode='lines+markers',
+                                name='Вес',
+                                line=dict(color='#1f77b4', width=3),
+                                marker=dict(size=8),
+                                hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Вес: %{y:.1f} кг<extra></extra>'
+                            ))
+                            
+                            fig.update_layout(
+                                title='Изменение веса по дням',
+                                xaxis_title='Дата',
+                                yaxis_title='Вес (кг)',
+                                hovermode='x unified',
+                                height=500,
+                                template='plotly_white'
+                            )
+                            
+                            st.plotly_chart(fig, width="stretch")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Текущий вес", f"{weights[-1]:.1f} кг")
+                            with col2:
+                                st.metric("Минимальный вес", f"{min(weights):.1f} кг")
+                            with col3:
+                                st.metric("Максимальный вес", f"{max(weights):.1f} кг")
+                            
+                            if len(weights) > 1:
+                                change = weights[-1] - weights[0]
+                                if change > 0:
+                                    st.info(f"📈 Изменение за весь период: **+{change:.1f} кг**")
+                                elif change < 0:
+                                    st.success(f"📉 Изменение за весь период: **{change:.1f} кг**")
+                                else:
+                                    st.info(f"➡️ Вес не изменился за весь период")
+                        else:
+                            st.warning("📭 Нет данных о замерах веса. Добавь замеры на главной странице.")
+                    
+                    # ====================================================================
+                    # ВКЛАДКА 2: СИЛОВЫЕ ПОКАЗАТЕЛИ
+                    # ====================================================================
+                    with tab2:
+                        st.subheader(" Прогресс в упражнениях")
+                        
+                        exercises_with_logs = session.query(Exercise).join(WorkoutLog).all()
+                        
+                        if exercises_with_logs:
+                            ex_options = {e.name: e for e in exercises_with_logs}
+                            selected_ex_name = st.selectbox(
+                                "Выбери упражнение:",
+                                options=list(ex_options.keys())
+                            )
+                            
+                            if selected_ex_name:
+                                selected_ex = ex_options[selected_ex_name]
+                                
+                                logs = session.query(WorkoutLog).join(Workout).filter(
+                                    WorkoutLog.exercise_id == selected_ex.exercise_id,
+                                    Workout.user_id == current_user.user_id,
+                                    WorkoutLog.weight.isnot(None)
+                                ).order_by(Workout.date).all()
+                                
+                                if logs:
+                                    import plotly.graph_objects as go
+                                    
+                                    dates = [log.workout.date for log in logs]
+                                    weights = [log.weight for log in logs]
+                                    volumes = [log.sets * log.reps * log.weight for log in logs]
+                                    
+                                    fig = go.Figure()
+                                    
+                                    fig.add_trace(go.Scatter(
+                                        x=dates,
+                                        y=weights,
+                                        mode='lines+markers',
+                                        name='Вес (кг)',
+                                        line=dict(color='#ff7f0e', width=3),
+                                        marker=dict(size=8),
+                                        yaxis='y1',
+                                        hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Вес: %{y:.1f} кг<extra></extra>'
+                                    ))
+                                    
+                                    fig.add_trace(go.Scatter(
+                                        x=dates,
+                                        y=volumes,
+                                        mode='lines+markers',
+                                        name='Объем (кг)',
+                                        line=dict(color='#2ca02c', width=2, dash='dash'),
+                                        marker=dict(size=6),
+                                        yaxis='y2',
+                                        hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Объем: %{y:.0f} кг<extra></extra>'
+                                    ))
+                                    
+                                    fig.update_layout(
+                                        title=f'Прогресс: {selected_ex_name}',
+                                        xaxis_title='Дата',
+                                        yaxis=dict(
+                                            title=dict(text='Вес (кг)', font=dict(color='#ff7f0e'))
+                                        ),
+                                        yaxis2=dict(
+                                            title=dict(text='Объем (кг)', font=dict(color='#2ca02c')),
+                                            overlaying='y',
+                                            side='right'
+                                        ),
+                                        hovermode='x unified',
+                                        height=500,
+                                        template='plotly_white',
+                                        legend=dict(x=0, y=1.1, orientation='h')
+                                    )
+                                    
+                                    st.plotly_chart(fig, width="stretch")
+                                    
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Максимальный вес", f"{max(weights):.1f} кг")
+                                    with col2:
+                                        st.metric("Текущий вес", f"{weights[-1]:.1f} кг")
+                                    with col3:
+                                        st.metric("Всего тренировок", f"{len(logs)}")
+                                else:
+                                    st.info(f"📭 Нет данных по упражнению '{selected_ex_name}'")
+                        else:
+                            st.warning("📭 Нет данных о тренировках. Добавь хотя бы одну тренировку.")
+                    
+                    # ====================================================================
+                    # ВКЛАДКА 3: БЖУ ЗА ДЕНЬ
+                    # ====================================================================
+                    with tab3:
+                        st.subheader("🥧 Соотношение БЖУ за день")
+                        
+                        macro_date = st.date_input(
+                            "Выбери дату:",
+                            value=date.today(),
+                            max_value=date.today(),
+                            key="macro_date"
+                        )
+                        
+                        day_logs = session.query(FoodLog).filter(
+                            FoodLog.user_id == current_user.user_id,
+                            FoodLog.date == macro_date
+                        ).all()
+                        
+                        if day_logs:
+                            # ✅ ИСПРАВЛЕНИЕ: Создаем словарь продуктов и передаем его в функцию
+                            all_foods_dict = {}
+                            for f in get_all_foods():
+                                all_foods_dict[f.name] = f
+                            for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                                all_foods_dict[f.name] = f
+                                
+                            totals = calculate_daily_totals(day_logs, all_foods_dict)
+                            
+                            if totals['protein'] > 0 or totals['fat'] > 0 or totals['carbs'] > 0:
+                                import plotly.graph_objects as go
+                                
+                                labels = ['Белки', 'Жиры', 'Углеводы']
+                                values = [totals['protein'], totals['fat'], totals['carbs']]
+                                colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+                                
+                                fig = go.Figure(data=[go.Pie(
+                                    labels=labels,
+                                    values=values,
+                                    hole=.4,
+                                    marker=dict(colors=colors),
+                                    textinfo='label+percent',
+                                    hovertemplate='<b>%{label}</b><br>%{value:.1f}г<br>%{percent}<extra></extra>'
+                                )])
+                                
+                                fig.update_layout(
+                                    title=f'БЖУ за {macro_date.strftime("%d.%m.%Y")}',
+                                    height=500,
+                                    annotations=[dict(
+                                        text=f'<b>{totals["calories"]:.0f}</b><br>ккал',
+                                        x=0.5, y=0.5,
+                                        font_size=20,
+                                        showarrow=False
+                                    )]
+                                )
+                                
+                                st.plotly_chart(fig, width="stretch")
+                                
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
+                                with col2:
+                                    st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
+                                with col3:
+                                    st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
+                            else:
+                                st.info("📭 Нет данных о макронутриентах за этот день")
+                        else:
+                            st.info(f"📭 Нет записей о питании за {macro_date.strftime('%d.%m.%Y')}")
+                    
+                    # ====================================================================
+                    # ВКЛАДКА 4: КАЛОРИИ ПО ДНЯМ
+                    # ====================================================================
+                    with tab4:
+                        st.subheader("🔥 Динамика калорийности по дням")
+                        
+                        all_food_logs = session.query(FoodLog).filter(
+                            FoodLog.user_id == current_user.user_id
+                        ).all()
+                        
+                        if all_food_logs:
+                            import plotly.graph_objects as go
+                            from collections import defaultdict
+                            
+                            # ✅ ИСПРАВЛЕНИЕ: Создаем словарь продуктов
+                            all_foods_dict = {}
+                            for f in get_all_foods():
+                                all_foods_dict[f.name] = f
+                            for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
+                                all_foods_dict[f.name] = f
+                            
+                            calories_by_date = defaultdict(float)
+                            for log in all_food_logs:
+                                # ✅ ИСПРАВЛЕНИЕ: Используем food_name и словарь вместо log.food
+                                food_item = all_foods_dict.get(log.food_name)
+                                macros = calculate_food_calories(food_item, log.weight_eaten) if food_item else {'calories': 0}
+                                calories_by_date[log.date] += macros['calories']
+                            
+                            sorted_dates = sorted(calories_by_date.keys())
+                            calories = [calories_by_date[d] for d in sorted_dates]
+                            
+                            fig = go.Figure()
+                            
+                            fig.add_trace(go.Bar(
+                                x=sorted_dates,
+                                y=calories,
+                                marker_color='#ef553b',
+                                hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Калории: %{y:.0f} ккал<extra></extra>'
+                            ))
+                            
+                            fig.update_layout(
+                                title='Потребление калорий по дням',
+                                xaxis_title='Дата',
+                                yaxis_title='Калории (ккал)',
+                                hovermode='x unified',
+                                height=500,
+                                template='plotly_white'
+                            )
+                            
+                            st.plotly_chart(fig, width="stretch")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                avg_calories = sum(calories) / len(calories)
+                                st.metric("Среднее за день", f"{avg_calories:.0f} ккал")
+                            with col2:
+                                st.metric("Минимум", f"{min(calories):.0f} ккал")
+                            with col3:
+                                st.metric("Максимум", f"{max(calories):.0f} ккал")
+                        else:
+                            st.warning("📭 Нет данных о питании. Добавь хотя бы один прием пищи.")
+                pass
         # ============================================================================
-        # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
+        # СТРАНИЦА ПИТАНИЯ
         # ============================================================================
 
         elif page == "🍎 Питание":
-            st.header("Дневник питания")
+            st.header("🍎 Управление питанием")
             
+            # Создаем верхние вкладки
+            tab_diary, tab_reference = st.tabs([
+                "📝 Дневник питания", 
+                "🥗 Справочник моей еды"
+            ])
             user = session.query(User).first()
             
             if not user:
@@ -702,10 +1055,7 @@ else:
                     value=date.today(),
                     max_value=date.today()
                 )
-                
-                st.markdown("---")
-                
-                # ====== ФОРМА ДОБАВЛЕНИЯ ЕДЫ ======
+            with tab_diary:
                 st.subheader("➕ Добавить прием пищи")
                 
                 # =========================================================================
@@ -1186,7 +1536,144 @@ else:
                     with col4: st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
                 else:
                     st.info(f"📭 Записей за {selected_date.strftime('%d.%m.%Y')} пока нет")
+                pass
 
+            with tab_reference:
+                # =========================================================================
+                # СТРАНИЦА "МОЯ ЕДА" (Умный справочник с поиском и фильтрацией)
+                # =========================================================================
+                st.header("🥗 Справочник моей еды")
+                st.info("💡 Здесь отображаются все продукты. Ты можешь искать их по названию и удалять только те, что добавил сам.")
+                
+                # 1. Получаем все продукты
+                base_foods = get_all_foods()
+                custom_foods = session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
+                all_foods = base_foods + custom_foods
+                
+                # 2. Вкладки
+                tab1, tab2 = st.tabs(["🥬 Базовые продукты", "🍲 Готовые блюда"])
+                
+                # Универсальная функция для рендера содержимого вкладки
+                def render_tab_content(is_basic_target):
+                    # А. Фильтрация по типу (базовый/готовый)
+                    filtered_foods = [f for f in all_foods if getattr(f, 'is_basic', True) == is_basic_target]
+                    
+                    # Б. Поисковая строка (уникальный ключ для каждой вкладки)
+                    search_query = st.text_input(
+                        "🔍 Поиск по названию:", 
+                        key=f"search_{'basic' if is_basic_target else 'prepared'}",
+                        placeholder="Введите название продукта..."
+                    )
+                    
+                    if search_query:
+                        filtered_foods = [f for f in filtered_foods if search_query.lower() in f.name.lower()]
+                    
+                    if not filtered_foods:
+                        st.info(f"📭 В этой категории ничего не найдено.")
+                        return
+                    
+                    import pandas as pd
+                    
+                    data_macros = []
+                    data_micros = []
+                    
+                    for f in filtered_foods:
+                        # Категории (только для base_foods)
+                        categories = get_food_categories(f.food_id) if hasattr(f, 'food_id') else []
+                        cat_display = get_display_categories(f)
+                        is_custom_tag = " *(Твой)*" if hasattr(f, 'custom_food_id') else ""
+                        
+                        data_macros.append({
+                            "Название": f"{f.name}{is_custom_tag}",
+                            "Категории": cat_display,
+                            "Ккал": f.calories_per_100g,
+                            "Белки": f.protein_per_100g,
+                            "Жиры": f.fat_per_100g,
+                            "Углеводы": f.carbs_per_100g,
+                            "ID": f.food_id if hasattr(f, 'food_id') else f.custom_food_id
+                        })
+                        
+                        data_micros.append({
+                            "Название": f"{f.name}{is_custom_tag}",
+                            "Вит.А": f.vitamin_a or 0,
+                            "Вит.C": f.vitamin_c or 0,
+                            "Вит.D": f.vitamin_d or 0,
+                            "Вит.E": f.vitamin_e or 0,
+                            "Вит.K": f.vitamin_k or 0,
+                            "Вит.B": f.vitamin_b_complex or 0,
+                            "Железо": f.iron or 0,
+                            "Кальций": f.calcium or 0,
+                            "Магний": f.magnesium or 0,
+                            "Цинк": f.zinc or 0,
+                            "Йод": f.iodine or 0,
+                            "Селен": f.selenium or 0,
+                            "ID": f.food_id if hasattr(f, 'food_id') else f.custom_food_id
+                        })
+                    
+                    df_macros = pd.DataFrame(data_macros)
+                    df_micros = pd.DataFrame(data_micros)
+                    
+                    # В. Компактная таблица макронутриентов с форматированием
+                    st.subheader("📊 Макронутриенты (на 100г)")
+                    st.dataframe(
+                        df_macros[["Название", "Категории", "Ккал", "Белки", "Жиры", "Углеводы"]], 
+                        width='stretch', 
+                        hide_index=True,
+                        column_config={
+                            "Ккал": st.column_config.NumberColumn(format="%.0f"),
+                            "Белки": st.column_config.NumberColumn(format="%.1f г"),
+                            "Жиры": st.column_config.NumberColumn(format="%.1f г"),
+                            "Углеводы": st.column_config.NumberColumn(format="%.1f г"),
+                        }
+                    )
+                    
+                    # Г. Компактная таблица микронутриентов внутри expander
+                    with st.expander("🧪 Показать микронутриенты", expanded=False):
+                        st.dataframe(
+                            df_micros.drop(columns=["ID"]), 
+                            width='stretch', 
+                            hide_index=True,
+                            column_config={col: st.column_config.NumberColumn(format="%.1f") for col in df_micros.columns if col != "Название"}
+                        )
+                    
+                    st.markdown("---")
+                    st.subheader("🗑️ Управление справочником")
+                    st.caption("Здесь можно удалить только *твои* добавленные продукты, отображаемые в этой вкладке.")
+                    
+                    # Д. Фильтруем только кастомные продукты из текущего отфильтрованного списка
+                    custom_filtered = [f for f in filtered_foods if hasattr(f, 'custom_food_id')]
+                    
+                    if custom_filtered:
+                        with st.form(f"delete_food_form_{'basic' if is_basic_target else 'prepared'}"):
+                            food_names = [f.name for f in custom_filtered]
+                            food_to_delete = st.selectbox("Выбери продукт для удаления:", food_names)
+                            
+                            col1, col2 = st.columns([1, 3])
+                            with col1:
+                                confirm_delete = st.form_submit_button("Удалить", type="primary")
+                            
+                            if confirm_delete:
+                                food_obj = session.query(CustomFood).filter(
+                                    CustomFood.name == food_to_delete, 
+                                    CustomFood.user_id == current_user.user_id
+                                ).first()
+                                if food_obj:
+                                    session.delete(food_obj)
+                                    session.commit()
+                                    st.success(f"✅ Продукт '{food_to_delete}' успешно удален!")
+                                    st.rerun()
+                    else:
+                        st.info("📭 В этой категории нет твоих личных продуктов для удаления.")
+
+                # 3. Рендерим содержимое вкладок
+                with tab1:
+                    render_tab_content(is_basic_target=True)
+                
+                with tab2:
+                    render_tab_content(is_basic_target=False)              
+                pass
+                st.markdown("---")
+                
         # ============================================================================
         # СТРАНИЦА ТРЕНИРОВОК (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
         # ============================================================================
@@ -1340,177 +1827,6 @@ else:
                                 st.rerun()
                 else:
                     st.info(f"📭 Тренировок за {selected_date.strftime('%d.%m.%Y')} не найдено")
-        # =========================================================================
-        # СТРАНИЦА МЕДИЦИНСКИХ АНАЛИЗОВ
-        # =========================================================================
-        elif page == "🩺 Анализы":
-            st.header("🩺 Дневник медицинских анализов")
-            st.info("💡 Заполняйте только те показатели, которые вы сдали. Приложение запомнит единицы измерения и построит график динамики.")
-            
-            # СЛОВАРЬ ПОКАЗАТЕЛЕЙ (Можешь легко добавить сюда остальные из твоего списка)
-            MEDICAL_INDICATORS = {
-                "🩸 Общий анализ крови": {
-                    "Гемоглобин": "г/л",
-                    "Эритроциты": "10^12/л",
-                    "Лейкоциты": "10^9/л",
-                    "Тромбоциты": "10^9/л",
-                    "Гематокрит": "%",
-                    "MCV (средний объем эритроцита)": "фл",
-                    "MCH (среднее содержание Hb)": "пг"
-                },
-                "🧪 Биохимический анализ крови": {
-                    "Общий белок": "г/л",
-                    "Альбумин": "г/л",
-                    "Глюкоза": "ммоль/л",
-                    "Холестерин общий": "ммоль/л",
-                    "Холестерин ЛПВП": "ммоль/л",
-                    "Холестерин ЛПНП": "ммоль/л",
-                    "Триглицериды": "ммоль/л",
-                    "АЛТ": "Ед/л",
-                    "АСТ": "Ед/л",
-                    "Билирубин общий": "мкмоль/л",
-                    "Креатинин": "мкмоль/л",
-                    "Мочевая кислота": "мкмоль/л",
-                    "Ферритин": "мкг/л",
-                    "Витамин D (25-OH)": "нг/мл",
-                    "ТТГ": "мкМЕ/мл"
-                },
-                "💧 Общий анализ мочи": {
-                    "Белок": "г/л",
-                    "Глюкоза": "ммоль/л",
-                    "Лейкоциты": "в п/зр",
-                    "Эритроциты": "в п/зр",
-                    "Удельный вес": ""
-                }
-            }
-            
-            tab_input, tab_graph = st.tabs(["➕ Внести результаты", "📈 График динамики"])
-            
-            # ---------------------------------------------------------------------
-            # ВКЛАДКА 1: ВВОД ДАННЫХ
-            # ---------------------------------------------------------------------
-            with tab_input:
-                test_date = st.date_input("📅 Дата сдачи анализов:", value=date.today())
-                
-                with st.form("medical_form"):
-                    for category, indicators in MEDICAL_INDICATORS.items():
-                        with st.expander(category):
-                            for name, unit in indicators.items():
-                                unit_str = f" ({unit})" if unit else ""
-                                
-                                # ИСПРАВЛЕНИЕ: добавили {category} в ключ для уникальности
-                                st.number_input(
-                                    f"{name}{unit_str}", 
-                                    min_value=0.0, 
-                                    value=0.0, 
-                                    step=0.1, 
-                                    key=f"med_{category}_{name}_{test_date}"
-                                )
-                    
-                    submit_med = st.form_submit_button("💾 Сохранить результаты анализов", type="primary", width='stretch')
-                    
-                    if submit_med:
-                        saved_count = 0
-                        for category, indicators in MEDICAL_INDICATORS.items():
-                            for name, unit in indicators.items():
-                                # ИСПРАВЛЕНИЕ: читаем по новому уникальному ключу
-                                val = st.session_state[f"med_{category}_{name}_{test_date}"]
-                                if val > 0.0:
-                                    # Проверяем, нет ли уже такой записи на эту дату (чтобы не дублировать при повторном нажатии)
-                                    existing = session.query(MedicalResult).filter(
-                                        MedicalResult.user_id == current_user.user_id,
-                                        MedicalResult.test_date == test_date,
-                                        MedicalResult.test_name == name
-                                    ).first()
-                                    
-                                    if existing:
-                                        existing.value = val # Обновляем, если уже есть
-                                    else:
-                                        new_result = MedicalResult(
-                                            user_id=current_user.user_id,
-                                            test_date=test_date,
-                                            test_category=category,
-                                            test_name=name,
-                                            value=val,
-                                            unit=unit
-                                        )
-                                        session.add(new_result)
-                                    saved_count += 1
-                        
-                        session.commit()
-                        st.success(f"✅ Успешно сохранено {saved_count} показателей за {test_date.strftime('%d.%m.%Y')}!")
-                        st.rerun()
-
-            # ---------------------------------------------------------------------
-            # ВКЛАДКА 2: ГРАФИК ДИНАМИКИ
-            # ---------------------------------------------------------------------
-            with tab_graph:
-                st.subheader("📈 Динамика конкретного показателя")
-                
-                # Получаем список всех уникальных показателей, которые когда-либо сдавал этот пользователь
-                user_results = session.query(MedicalResult).filter(
-                    MedicalResult.user_id == current_user.user_id
-                ).all()
-                
-                if user_results:
-                    # Создаем уникальный отсортированный список названий
-                    unique_tests = sorted(list(set([r.test_name for r in user_results])))
-                    
-                    selected_test = st.selectbox("Выберите показатель для графика:", unique_tests)
-                    
-                    if selected_test:
-                        # Находим единицу измерения для этого показателя
-                        unit = next((r.unit for r in user_results if r.test_name == selected_test), "")
-                        unit_str = f" ({unit})" if unit else ""
-                        
-                        # Получаем историю по этому показателю, отсортированную по дате
-                        history = session.query(MedicalResult).filter(
-                            MedicalResult.user_id == current_user.user_id,
-                            MedicalResult.test_name == selected_test
-                        ).order_by(MedicalResult.test_date).all()
-                        
-                        if len(history) >= 1:
-                            import plotly.graph_objects as go
-                            
-                            dates = [h.test_date for h in history]
-                            values = [h.value for h in history]
-                            
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=dates,
-                                y=values,
-                                mode='lines+markers',
-                                name=selected_test,
-                                line=dict(color='#9b59b6', width=3),
-                                marker=dict(size=8),
-                                hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Значение: %{y:.2f}' + unit_str + '<extra></extra>'
-                            ))
-                            
-                            fig.update_layout(
-                                title=f'Динамика: {selected_test}',
-                                xaxis_title='Дата',
-                                yaxis_title=f'Значение{unit_str}',
-                                hovermode='x unified',
-                                height=500,
-                                template='plotly_white'
-                            )
-                            
-                            st.plotly_chart(fig, width='stretch')
-                            
-                            # Таблица с историей
-                            import pandas as pd
-                            df_hist = pd.DataFrame([{
-                                "Дата": h.test_date.strftime("%d.%m.%Y"),
-                                "Значение": h.value,
-                                "Ед. изм.": h.unit or "-"
-                            } for h in history])
-                            
-                            st.markdown("##### 📜 История значений:")
-                            st.dataframe(df_hist, width='stretch', hide_index=True)
-                        else:
-                            st.info("Недостаточно данных для построения графика.")
-                else:
-                    st.info("📭 Вы еще не внесли ни одного результата анализов. Перейдите во вкладку 'Внести результаты'.")
 
         # =========================================================================
         # СТРАНИЦА "МОЙ КАЛЕНДАРЬ" (Адаптивная неделя)
@@ -1567,299 +1883,5 @@ else:
                             # Для будущих дней пока просто заглушка, чтобы не загромождать UI
                             st.markdown("📝 *План на день пока пуст*")
                             st.button("Сгенерировать", key=f"gen_{i}", disabled=True, use_container_width=True)
-
-        # ============================================================================
-        # СТРАНИЦА ПРОГРЕССА
-        # ============================================================================
-        elif page == "📊 Прогресс":
-            st.header("📊 Прогресс и аналитика")
-            
-            user = session.query(User).first()
-            
-            if not user:
-                st.error("Пользователь не найден!")
-            else:
-                tab1, tab2, tab3, tab4 = st.tabs([
-                    "📈 Вес тела", 
-                    "💪 Силовые показатели", 
-                    " БЖУ за день",
-                    " Калории по дням"
-                ])
-                
-                # ====================================================================
-                # ВКЛАДКА 1: ГРАФИК ВЕСА ТЕЛА
-                # ====================================================================
-                with tab1:
-                    st.subheader(" Динамика веса тела")
-                    
-                    measurements = session.query(UserMeasurement).filter(
-                        UserMeasurement.user_id == current_user.user_id,
-                        UserMeasurement.weight.isnot(None)
-                    ).order_by(UserMeasurement.date).all()
-                    
-                    if measurements:
-                        import plotly.graph_objects as go
-                        
-                        dates = [m.date for m in measurements]
-                        weights = [m.weight for m in measurements]
-                        
-                        fig = go.Figure()
-                        
-                        fig.add_trace(go.Scatter(
-                            x=dates,
-                            y=weights,
-                            mode='lines+markers',
-                            name='Вес',
-                            line=dict(color='#1f77b4', width=3),
-                            marker=dict(size=8),
-                            hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Вес: %{y:.1f} кг<extra></extra>'
-                        ))
-                        
-                        fig.update_layout(
-                            title='Изменение веса по дням',
-                            xaxis_title='Дата',
-                            yaxis_title='Вес (кг)',
-                            hovermode='x unified',
-                            height=500,
-                            template='plotly_white'
-                        )
-                        
-                        st.plotly_chart(fig, width="stretch")
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Текущий вес", f"{weights[-1]:.1f} кг")
-                        with col2:
-                            st.metric("Минимальный вес", f"{min(weights):.1f} кг")
-                        with col3:
-                            st.metric("Максимальный вес", f"{max(weights):.1f} кг")
-                        
-                        if len(weights) > 1:
-                            change = weights[-1] - weights[0]
-                            if change > 0:
-                                st.info(f"📈 Изменение за весь период: **+{change:.1f} кг**")
-                            elif change < 0:
-                                st.success(f"📉 Изменение за весь период: **{change:.1f} кг**")
-                            else:
-                                st.info(f"➡️ Вес не изменился за весь период")
-                    else:
-                        st.warning("📭 Нет данных о замерах веса. Добавь замеры на главной странице.")
-                
-                # ====================================================================
-                # ВКЛАДКА 2: СИЛОВЫЕ ПОКАЗАТЕЛИ
-                # ====================================================================
-                with tab2:
-                    st.subheader(" Прогресс в упражнениях")
-                    
-                    exercises_with_logs = session.query(Exercise).join(WorkoutLog).all()
-                    
-                    if exercises_with_logs:
-                        ex_options = {e.name: e for e in exercises_with_logs}
-                        selected_ex_name = st.selectbox(
-                            "Выбери упражнение:",
-                            options=list(ex_options.keys())
-                        )
-                        
-                        if selected_ex_name:
-                            selected_ex = ex_options[selected_ex_name]
-                            
-                            logs = session.query(WorkoutLog).join(Workout).filter(
-                                WorkoutLog.exercise_id == selected_ex.exercise_id,
-                                Workout.user_id == current_user.user_id,
-                                WorkoutLog.weight.isnot(None)
-                            ).order_by(Workout.date).all()
-                            
-                            if logs:
-                                import plotly.graph_objects as go
-                                
-                                dates = [log.workout.date for log in logs]
-                                weights = [log.weight for log in logs]
-                                volumes = [log.sets * log.reps * log.weight for log in logs]
-                                
-                                fig = go.Figure()
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates,
-                                    y=weights,
-                                    mode='lines+markers',
-                                    name='Вес (кг)',
-                                    line=dict(color='#ff7f0e', width=3),
-                                    marker=dict(size=8),
-                                    yaxis='y1',
-                                    hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Вес: %{y:.1f} кг<extra></extra>'
-                                ))
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates,
-                                    y=volumes,
-                                    mode='lines+markers',
-                                    name='Объем (кг)',
-                                    line=dict(color='#2ca02c', width=2, dash='dash'),
-                                    marker=dict(size=6),
-                                    yaxis='y2',
-                                    hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Объем: %{y:.0f} кг<extra></extra>'
-                                ))
-                                
-                                fig.update_layout(
-                                    title=f'Прогресс: {selected_ex_name}',
-                                    xaxis_title='Дата',
-                                    yaxis=dict(
-                                        title=dict(text='Вес (кг)', font=dict(color='#ff7f0e'))
-                                    ),
-                                    yaxis2=dict(
-                                        title=dict(text='Объем (кг)', font=dict(color='#2ca02c')),
-                                        overlaying='y',
-                                        side='right'
-                                    ),
-                                    hovermode='x unified',
-                                    height=500,
-                                    template='plotly_white',
-                                    legend=dict(x=0, y=1.1, orientation='h')
-                                )
-                                
-                                st.plotly_chart(fig, width="stretch")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("Максимальный вес", f"{max(weights):.1f} кг")
-                                with col2:
-                                    st.metric("Текущий вес", f"{weights[-1]:.1f} кг")
-                                with col3:
-                                    st.metric("Всего тренировок", f"{len(logs)}")
-                            else:
-                                st.info(f"📭 Нет данных по упражнению '{selected_ex_name}'")
-                    else:
-                        st.warning("📭 Нет данных о тренировках. Добавь хотя бы одну тренировку.")
-                
-                # ====================================================================
-                # ВКЛАДКА 3: БЖУ ЗА ДЕНЬ
-                # ====================================================================
-                with tab3:
-                    st.subheader("🥧 Соотношение БЖУ за день")
-                    
-                    macro_date = st.date_input(
-                        "Выбери дату:",
-                        value=date.today(),
-                        max_value=date.today(),
-                        key="macro_date"
-                    )
-                    
-                    day_logs = session.query(FoodLog).filter(
-                        FoodLog.user_id == current_user.user_id,
-                        FoodLog.date == macro_date
-                    ).all()
-                    
-                    if day_logs:
-                        # ✅ ИСПРАВЛЕНИЕ: Создаем словарь продуктов и передаем его в функцию
-                        all_foods_dict = {}
-                        for f in get_all_foods():
-                            all_foods_dict[f.name] = f
-                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
-                            all_foods_dict[f.name] = f
-                            
-                        totals = calculate_daily_totals(day_logs, all_foods_dict)
-                        
-                        if totals['protein'] > 0 or totals['fat'] > 0 or totals['carbs'] > 0:
-                            import plotly.graph_objects as go
-                            
-                            labels = ['Белки', 'Жиры', 'Углеводы']
-                            values = [totals['protein'], totals['fat'], totals['carbs']]
-                            colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
-                            
-                            fig = go.Figure(data=[go.Pie(
-                                labels=labels,
-                                values=values,
-                                hole=.4,
-                                marker=dict(colors=colors),
-                                textinfo='label+percent',
-                                hovertemplate='<b>%{label}</b><br>%{value:.1f}г<br>%{percent}<extra></extra>'
-                            )])
-                            
-                            fig.update_layout(
-                                title=f'БЖУ за {macro_date.strftime("%d.%m.%Y")}',
-                                height=500,
-                                annotations=[dict(
-                                    text=f'<b>{totals["calories"]:.0f}</b><br>ккал',
-                                    x=0.5, y=0.5,
-                                    font_size=20,
-                                    showarrow=False
-                                )]
-                            )
-                            
-                            st.plotly_chart(fig, width="stretch")
-                            
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("🥩 Белки", f"{totals['protein']:.1f} г")
-                            with col2:
-                                st.metric("🥑 Жиры", f"{totals['fat']:.1f} г")
-                            with col3:
-                                st.metric("🍞 Углеводы", f"{totals['carbs']:.1f} г")
-                        else:
-                            st.info("📭 Нет данных о макронутриентах за этот день")
-                    else:
-                        st.info(f"📭 Нет записей о питании за {macro_date.strftime('%d.%m.%Y')}")
-                
-                # ====================================================================
-                # ВКЛАДКА 4: КАЛОРИИ ПО ДНЯМ
-                # ====================================================================
-                with tab4:
-                    st.subheader("🔥 Динамика калорийности по дням")
-                    
-                    all_food_logs = session.query(FoodLog).filter(
-                        FoodLog.user_id == current_user.user_id
-                    ).all()
-                    
-                    if all_food_logs:
-                        import plotly.graph_objects as go
-                        from collections import defaultdict
-                        
-                        # ✅ ИСПРАВЛЕНИЕ: Создаем словарь продуктов
-                        all_foods_dict = {}
-                        for f in get_all_foods():
-                            all_foods_dict[f.name] = f
-                        for f in session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all():
-                            all_foods_dict[f.name] = f
-                        
-                        calories_by_date = defaultdict(float)
-                        for log in all_food_logs:
-                            # ✅ ИСПРАВЛЕНИЕ: Используем food_name и словарь вместо log.food
-                            food_item = all_foods_dict.get(log.food_name)
-                            macros = calculate_food_calories(food_item, log.weight_eaten) if food_item else {'calories': 0}
-                            calories_by_date[log.date] += macros['calories']
-                        
-                        sorted_dates = sorted(calories_by_date.keys())
-                        calories = [calories_by_date[d] for d in sorted_dates]
-                        
-                        fig = go.Figure()
-                        
-                        fig.add_trace(go.Bar(
-                            x=sorted_dates,
-                            y=calories,
-                            marker_color='#ef553b',
-                            hovertemplate='<b>%{x|%d.%m.%Y}</b><br>Калории: %{y:.0f} ккал<extra></extra>'
-                        ))
-                        
-                        fig.update_layout(
-                            title='Потребление калорий по дням',
-                            xaxis_title='Дата',
-                            yaxis_title='Калории (ккал)',
-                            hovermode='x unified',
-                            height=500,
-                            template='plotly_white'
-                        )
-                        
-                        st.plotly_chart(fig, width="stretch")
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            avg_calories = sum(calories) / len(calories)
-                            st.metric("Среднее за день", f"{avg_calories:.0f} ккал")
-                        with col2:
-                            st.metric("Минимум", f"{min(calories):.0f} ккал")
-                        with col3:
-                            st.metric("Максимум", f"{max(calories):.0f} ккал")
-                    else:
-                        st.warning("📭 Нет данных о питании. Добавь хотя бы один прием пищи.")
         # Закрываем сессию
     session.close()
