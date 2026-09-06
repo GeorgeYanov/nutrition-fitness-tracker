@@ -353,6 +353,47 @@ class MealPlanSettings(Base):
     
     user = relationship('User', backref='meal_plan_settings')
 
+class DailySteps(Base):
+    """Ежедневная цель и факт по шагам"""
+    __tablename__ = 'daily_steps'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    date = Column(Date, nullable=False)
+    goal_steps = Column(Integer, default=10000)
+    actual_steps = Column(Integer, default=0)
+    
+    user = relationship('User', backref='daily_steps')
+
+
+class WorkoutSession(Base):
+    """Запись о тренировке"""
+    __tablename__ = 'workout_sessions'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    date = Column(Date, nullable=False)
+    workout_type = Column(String(20), nullable=False)  # 'running', 'cardio', 'strength'
+    
+    # Общие поля
+    duration_minutes = Column(Float)
+    calories_burned = Column(Float)
+    
+    # Для бега
+    distance_km = Column(Float)
+    avg_speed_kmh = Column(Float)
+    
+    # Для кардио и силовых
+    exercise_name = Column(String(200))
+    sets_count = Column(Integer)
+    
+    # Специфичные поля
+    duration_per_set_minutes = Column(Float)  # Для кардио
+    weight_kg = Column(Float)  # Для силовых
+    reps_count = Column(Integer)  # Для силовых
+    
+    user = relationship('User', backref='workout_sessions')
+
 # ============================================================================
 # ФУНКЦИИ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ
 # ============================================================================

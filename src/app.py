@@ -9,14 +9,17 @@ from database import (
     get_session, User, Exercise, FoodLog, Workout, WorkoutLog, 
     UserMeasurement, UserGoal, MedicalResult, ComplexMeal, 
     ComplexMealComponent, Allergen, UserAllergy, CustomFood, 
-    GeneratedPlan, UserFoodPreference, MealPlanSettings
+    GeneratedPlan, UserFoodPreference, MealPlanSettings,
+    DailySteps, WorkoutSession  # <-- ДОБАВИЛИ
 )
 from foods_database import get_all_foods, get_food_by_name, FoodItem, get_all_categories, get_food_categories, get_foods_by_category, FoodCategory
 from calculations import (
-       calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
-       calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
-       calculate_complex_meal_totals, get_standard_micro_goals, generate_weekly_plan
-   )
+    calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
+    calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
+    calculate_complex_meal_totals, get_standard_micro_goals, generate_weekly_plan,
+    calculate_steps_calories, calculate_running_calories, calculate_cardio_calories,
+    calculate_strength_calories, calculate_total_activity_calories  # <-- ДОБАВИЛИ
+)
 from auth import register_user, authenticate_user
 
 def get_display_categories(food_obj):
@@ -121,7 +124,7 @@ else:
             st.markdown("---")
             page = st.radio(
                 "Навигация", 
-                ["🏠 Главная", "👤 Профиль", "🍎 Питание", "🏋️ Тренировки", "📅 Мой календарь"]
+                ["🏠 Главная", "👤 Профиль", "🍎 Питание", "🏃 Активность", "📅 Мой календарь"]
             )
             st.markdown("---")
             if st.button("🚪 Выйти из аккаунта", width='stretch'):
@@ -147,18 +150,38 @@ else:
                     "🏋️ Высокая активность (6-7 тр/нед)": 1.725,
                 }
                 selected_activity = st.selectbox("Уровень активности:", list(activity_levels.keys()), index=2)
-                tdee = calculate_tdee(bmr, activity_levels[selected_activity])
+                base_tdee = calculate_tdee(bmr, activity_levels[selected_activity])
                 
-                col1, col2, col3, col4 = st.columns(4)
+                # ✅ НОВОЕ: Добавляем калории от активности сегодня
+                today_steps = session.query(DailySteps).filter(
+                    DailySteps.user_id == current_user.user_id,
+                    DailySteps.date == date.today()
+                ).first()
+                actual_steps = today_steps.actual_steps if today_steps else 0
+                
+                today_workouts = session.query(WorkoutSession).filter(
+                    WorkoutSession.user_id == current_user.user_id,
+                    WorkoutSession.date == date.today()
+                ).all()
+                
+                activity_calories = calculate_total_activity_calories(
+                    actual_steps, today_workouts, latest_measurement.weight
+                )
+                
+                # Итоговый TDEE = базовый + активность
+                total_tdee = base_tdee + activity_calories
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1: st.metric("🎂 Возраст", f"{age} лет")
                 with col2: st.metric("⚖️ Вес", f"{latest_measurement.weight} кг")
                 with col3: st.metric("🔥 BMR", f"{bmr:.0f} ккал")
-                with col4: st.metric("🎯 TDEE", f"{tdee:.0f} ккал")
+                with col4: st.metric("🎯 Базовый TDEE", f"{base_tdee:.0f} ккал")
+                with col5: st.metric("⚡ Итого TDEE", f"{total_tdee:.0f} ккал", delta=f"+{activity_calories:.0f} от активности")
                 
-                st.info(f"💡 Для похудения ешь ~{int(tdee - 300)} ккал. Для набора массы ~{int(tdee + 300)} ккал.")
+                st.info(f"💡 Для похудения ешь ~{int(total_tdee - 300)} ккал. Для набора массы ~{int(total_tdee + 300)} ккал.")
             else:
                 st.warning("⚠️ Заполни рост, дату рождения и добавь замер веса, чтобы увидеть расчет BMR/TDEE.")
-            
+
             st.markdown("---")
             st.subheader("📈 Статистика питания за сегодня")
             
@@ -248,7 +271,6 @@ else:
             ])
             
             with tab_personal:
-                st.header("👤 Настройки профиля и замеры")
                 
                 # ---------------------------------------------------------------------
                 # ФОРМА 1: ЛИЧНЫЕ ДАННЫЕ
@@ -571,7 +593,7 @@ else:
                 # СТРАНИЦА МЕДИЦИНСКИХ АНАЛИЗОВ
                 # =========================================================================
 
-                st.header("🩺 Дневник медицинских анализов")
+                st.subheader("🩺 Дневник медицинских анализов")
                 st.info("💡 Заполняйте только те показатели, которые вы сдали. Приложение запомнит единицы измерения и построит график динамики.")
                 
                 # СЛОВАРЬ ПОКАЗАТЕЛЕЙ (Можешь легко добавить сюда остальные из твоего списка)
@@ -745,7 +767,7 @@ else:
                 # СТРАНИЦА ПРОГРЕССА
                 # ============================================================================
 
-                st.header("📊 Прогресс и аналитика")
+                st.subheader("📊 Прогресс и аналитика")
                 
                 user = session.query(User).first()
                 
@@ -1928,159 +1950,271 @@ else:
                 pass
                 st.markdown("---")
                 
-        # ============================================================================
-        # СТРАНИЦА ТРЕНИРОВОК (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
-        # ============================================================================
-
-        elif page == "🏋️ Тренировки":
-            st.header("Дневник тренировок")
+        # =========================================================================
+        # РАЗДЕЛ "АКТИВНОСТЬ" (Тренировки + Шаги)
+        # =========================================================================
+        elif page == "🏃 Активность":
+            st.header("🏃 Активность и тренировки")
             
-            user = session.query(User).first()
-            if not user:
-                st.error("Пользователь не найден!")
-            else:
-                # ====== 1. ВЫБОР ДАТЫ ======
-                selected_date = st.date_input(
-                    "📅 Выбери дату для просмотра или добавления:",
-                    value=date.today(),
-                    max_value=date.today()
-                )
-                st.markdown("---")
+            tab_workouts, tab_reference = st.tabs(["🏋️ Тренировки", " Справочник"])
+            
+            with tab_workouts:
+                # Получаем актуальный вес
+                latest_meas = session.query(UserMeasurement).filter(
+                    UserMeasurement.user_id == current_user.user_id
+                ).order_by(UserMeasurement.date.desc()).first()
+                current_weight = latest_meas.weight if latest_meas else 70.0
                 
-                # ====== 2. КОНСТРУКТОР ТРЕНИРОВКИ ======
-                st.subheader("➕ Новая тренировка")
+                # =========================================================================
+                # РАЗДЕЛ 1: ЦЕЛЬ ПО ШАГАМ
+                # =========================================================================
+                st.subheader(" Цель по шагам на сегодня")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    w_date = st.date_input("Дата:", value=selected_date, key="w_date_input")
-                    w_duration = st.number_input("Длительность (мин):", min_value=1, value=60, step=5, key="w_dur")
-                with col2:
-                    w_intensity = st.selectbox("Общая интенсивность:", ["Легкая", "Средняя", "Тяжелая", "Максимальная"], key="w_int")
+                today = date.today()
+                today_steps_record = session.query(DailySteps).filter(
+                    DailySteps.user_id == current_user.user_id,
+                    DailySteps.date == today
+                ).first()
                 
-                st.markdown("---")
-                st.markdown("##### Добавить упражнение")
-                
-                if 'temp_exercises' not in st.session_state:
-                    st.session_state.temp_exercises = []
-                
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    exercises = session.query(Exercise).all()
-                    ex_options = {e.name: e for e in exercises}
-                    ex_choice = st.selectbox(
-                        "Упражнение:", 
-                        options=["🔍 Другое (добавить свое)"] + list(ex_options.keys()),
-                        key="ex_choice_select"
+                if not today_steps_record:
+                    today_steps_record = DailySteps(
+                        user_id=current_user.user_id,
+                        date=today,
+                        goal_steps=10000,
+                        actual_steps=0
                     )
-                    
-                    if ex_choice == "🔍 Другое (добавить свое)":
-                        new_ex_name = st.text_input("Название упражнения:", key="new_ex_name")
-                        new_ex_type = st.selectbox("Тип:", ["strength", "cardio", "flexibility"], key="new_ex_type")
-                        new_ex_muscles = st.text_input("Целевые мышцы (через запятую):", key="new_ex_muscles")
+                    session.add(today_steps_record)
+                    session.commit()
                 
-                with col_b:
-                    ex_sets = st.number_input("Подходы:", min_value=1, value=3, key="ex_sets")
-                    ex_reps = st.number_input("Повторения:", min_value=1, value=10, key="ex_reps")
-                with col_c:
-                    ex_weight = st.number_input("Вес (кг):", min_value=0.0, value=20.0, step=2.5, key="ex_weight")
-                
-                if st.button("➕ Добавить упражнение в тренировку", width="stretch"):
-                    if ex_choice == "🔍 Другое (добавить свое)":
-                        if not new_ex_name:
-                            st.error("❌ Введите название упражнения!")
-                        else:
-                            existing_ex = session.query(Exercise).filter(Exercise.name.ilike(new_ex_name)).first()
-                            if existing_ex:
-                                ex_obj = existing_ex
-                                st.info(f"ℹ️ Упражнение '{new_ex_name}' уже есть в справочнике")
-                            else:
-                                ex_obj = Exercise(
-                                    name=new_ex_name, 
-                                    exercise_type=new_ex_type, 
-                                    target_muscles=new_ex_muscles
-                                )
-                                session.add(ex_obj)
-                                session.flush()
-                    else:
-                        ex_obj = ex_options[ex_choice]
-                    
-                    st.session_state.temp_exercises.append({
-                        'exercise_id': ex_obj.exercise_id,
-                        'exercise_name': ex_obj.name,
-                        'sets': ex_sets,
-                        'reps': ex_reps,
-                        'weight': ex_weight
-                    })
-                    st.success(f"✅ {ex_obj.name} добавлен в список!")
-                    st.rerun()
-                
-                # ====== 3. ОТОБРАЖЕНИЕ ТЕКУЩЕЙ ТРЕНИРОВКИ ======
-                if st.session_state.temp_exercises:
-                    st.markdown("###### 📋 Текущая тренировка:")
-                    for idx, temp_ex in enumerate(st.session_state.temp_exercises):
-                        col_d1, col_d2, col_d3 = st.columns([3, 2, 1])
-                        with col_d1:
-                            st.write(f"**{temp_ex['exercise_name']}**")
-                        with col_d2:
-                            st.write(f"{temp_ex['sets']} × {temp_ex['reps']} @ {temp_ex['weight']} кг")
-                        with col_d3:
-                            if st.button("🗑️", key=f"remove_temp_{idx}"):
-                                st.session_state.temp_exercises.pop(idx)
-                                st.rerun()
-                    
-                    st.markdown("")
-                    if st.button("💾 Сохранить тренировку целиком", type="primary", width="stretch"):
-                        new_workout = Workout(
-                            user_id=current_user.user_id,
-                            date=w_date,
-                            duration_minutes=w_duration
+                with st.form("steps_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        goal_steps = st.number_input(
+                            "🎯 Цель шагов в день:",
+                            min_value=1000,
+                            max_value=50000,
+                            value=today_steps_record.goal_steps,
+                            step=500
                         )
-                        session.add(new_workout)
-                        session.flush()
-                        
-                        for temp_ex in st.session_state.temp_exercises:
-                            new_log = WorkoutLog(
-                                workout_id=new_workout.workout_id,
-                                exercise_id=temp_ex['exercise_id'],
-                                sets=temp_ex['sets'],
-                                reps=temp_ex['reps'],
-                                weight=temp_ex['weight'],
-                                intensity=w_intensity
-                            )
-                            session.add(new_log)
-                        
+                    with col2:
+                        actual_steps = st.number_input(
+                            " Пройдено шагов сегодня:",
+                            min_value=0,
+                            max_value=100000,
+                            value=today_steps_record.actual_steps,
+                            step=100
+                        )
+                    
+                    submit_steps = st.form_submit_button("💾 Сохранить шаги", type="primary", use_container_width=True)
+                    
+                    if submit_steps:
+                        today_steps_record.goal_steps = goal_steps
+                        today_steps_record.actual_steps = actual_steps
                         session.commit()
-                        st.session_state.temp_exercises = [] 
-                        st.success("🎉 Тренировка успешно сохранена!")
-                        st.balloons()
+                        st.success(f"✅ Шаги обновлены! Сожжено: {calculate_steps_calories(actual_steps, current_weight):.0f} ккал")
                         st.rerun()
                 
+                # Показываем прогресс по шагам
+                steps_pct = min(today_steps_record.actual_steps / today_steps_record.goal_steps, 1.0) if today_steps_record.goal_steps > 0 else 0
+                st.progress(steps_pct, text=f"Шаги: {today_steps_record.actual_steps} / {today_steps_record.goal_steps} ({steps_pct*100:.0f}%)")
+                
                 st.markdown("---")
                 
-                # ====== 4. ПРОСМОТР ТРЕНИРОВОК ЗА ВЫБРАННУЮ ДАТУ ======
-                st.subheader(f"📋 Тренировки за {selected_date.strftime('%d.%m.%Y')}")
+                # =========================================================================
+                # РАЗДЕЛ 2: ДОБАВЛЕНИЕ ТРЕНИРОВКИ
+                # =========================================================================
+                st.subheader("➕ Добавить тренировку")
                 
-                day_workouts = session.query(Workout).filter(
-                    Workout.user_id == current_user.user_id,
-                    Workout.date == selected_date
-                ).order_by(Workout.workout_id.desc()).all()
+                workout_type = st.radio(
+                    "Тип тренировки:",
+                    [" Бег", "💓 Кардио", "🏋️ Силовая"],
+                    horizontal=True
+                )
+                
+                workout_date = st.date_input("Дата тренировки:", value=today, max_value=today)
+                
+                with st.form("add_workout_form"):
+                    if workout_type == "🏃 Бег":
+                        st.markdown("##### Параметры бега")
+                        distance = st.number_input("Дистанция (км):", min_value=0.1, value=5.0, step=0.5)
+                        avg_speed = st.number_input("Средняя скорость (км/ч):", min_value=1.0, value=10.0, step=0.5)
+                        duration = st.number_input("Длительность (мин):", min_value=1, value=30, step=5)
+                        
+                        submit_workout = st.form_submit_button("🏃 Добавить пробежку", type="primary", use_container_width=True)
+                        
+                        if submit_workout:
+                            calories = calculate_running_calories(distance, current_weight)
+                            new_session = WorkoutSession(
+                                user_id=current_user.user_id,
+                                date=workout_date,
+                                workout_type='running',
+                                duration_minutes=duration,
+                                distance_km=distance,
+                                avg_speed_kmh=avg_speed,
+                                calories_burned=calories
+                            )
+                            session.add(new_session)
+                            session.commit()
+                            st.success(f"✅ Пробежка сохранена! Сожжено: {calories:.0f} ккал")
+                            st.rerun()
+                    
+                    elif workout_type == " Кардио":
+                        st.markdown("##### Параметры кардио")
+                        cardio_exercises = [
+                            ("Велотренажёр", 6.0),
+                            ("Эллипсоид", 5.0),
+                            ("Скакалка", 10.0),
+                            ("Бег на месте", 8.0),
+                            ("Гребной тренажёр", 7.0),
+                            ("Степпер", 6.5),
+                        ]
+                        
+                        selected_cardio = st.selectbox(
+                            "Вид кардио:",
+                            [ex[0] for ex in cardio_exercises]
+                        )
+                        met_value = next(ex[1] for ex in cardio_exercises if ex[0] == selected_cardio)
+                        
+                        duration_per_set = st.number_input("Время выполнения подхода (мин):", min_value=1, value=10, step=1)
+                        sets_count = st.number_input("Количество подходов:", min_value=1, value=3, step=1)
+                        
+                        total_duration = duration_per_set * sets_count
+                        
+                        submit_workout = st.form_submit_button("💓 Добавить кардио", type="primary", use_container_width=True)
+                        
+                        if submit_workout:
+                            calories = calculate_cardio_calories(total_duration, current_weight, met_value)
+                            new_session = WorkoutSession(
+                                user_id=current_user.user_id,
+                                date=workout_date,
+                                workout_type='cardio',
+                                duration_minutes=total_duration,
+                                exercise_name=selected_cardio,
+                                sets_count=sets_count,
+                                duration_per_set_minutes=duration_per_set,
+                                calories_burned=calories
+                            )
+                            session.add(new_session)
+                            session.commit()
+                            st.success(f"✅ Кардио сохранено! Сожжено: {calories:.0f} ккал (MET={met_value})")
+                            st.rerun()
+                    
+                    elif workout_type == "🏋️ Силовая":
+                        st.markdown("##### Параметры силовой тренировки")
+                        strength_exercises = [
+                            "Приседания со штангой",
+                            "Жим лёжа",
+                            "Становая тяга",
+                            "Жим плечами",
+                            "Подтягивания",
+                            "Отжимания",
+                            "Выпады с гантелями",
+                            "Тяга штанги в наклоне",
+                            "Бицепс со штангой",
+                            "Трицепс на блоке",
+                        ]
+                        
+                        selected_exercise = st.selectbox("Упражнение:", strength_exercises)
+                        weight = st.number_input("Нагрузка (кг):", min_value=0.0, value=20.0, step=2.5)
+                        reps = st.number_input("Количество повторений:", min_value=1, value=10, step=1)
+                        sets = st.number_input("Количество подходов:", min_value=1, value=3, step=1)
+                        duration = st.number_input("Общая длительность тренировки (мин):", min_value=5, value=45, step=5)
+                        
+                        # Интенсивность влияет на коэффициент
+                        intensity = st.selectbox(
+                            "Интенсивность:",
+                            ["Лёгкая (разминка)", "Средняя (рабочая)", "Тяжёлая (отказ)"]
+                        )
+                        intensity_factor = {"Лёгкая (разминка)": 3.0, "Средняя (рабочая)": 3.5, "Тяжёлая (отказ)": 5.0}[intensity]
+                        
+                        submit_workout = st.form_submit_button("🏋️ Добавить силовую", type="primary", use_container_width=True)
+                        
+                        if submit_workout:
+                            calories = calculate_strength_calories(duration, current_weight, intensity_factor)
+                            new_session = WorkoutSession(
+                                user_id=current_user.user_id,
+                                date=workout_date,
+                                workout_type='strength',
+                                duration_minutes=duration,
+                                exercise_name=selected_exercise,
+                                weight_kg=weight,
+                                reps_count=reps,
+                                sets_count=sets,
+                                calories_burned=calories
+                            )
+                            session.add(new_session)
+                            session.commit()
+                            st.success(f"✅ Силовая сохранена! Сожжено: {calories:.0f} ккал")
+                            st.rerun()
+                
+                st.markdown("---")
+                
+                # =========================================================================
+                # РАЗДЕЛ 3: ТРЕНИРОВКИ ЗА ВЫБРАННУЮ ДАТУ
+                # =========================================================================
+                st.subheader(f"📋 Тренировки за {workout_date.strftime('%d.%m.%Y')}")
+                
+                day_workouts = session.query(WorkoutSession).filter(
+                    WorkoutSession.user_id == current_user.user_id,
+                    WorkoutSession.date == workout_date
+                ).order_by(WorkoutSession.id.desc()).all()
                 
                 if day_workouts:
-                    for workout in day_workouts:
-                        volume = calculate_workout_volume(workout.logs)
-                        intensity_display = workout.logs[0].intensity if workout.logs else "N/A"
+                    total_burned = sum(w.calories_burned or 0 for w in day_workouts)
+                    st.metric(" Всего сожжено за день", f"{total_burned:.0f} ккал")
+                    st.markdown("")
+                    
+                    for w in day_workouts:
+                        type_icons = {'running': '🏃', 'cardio': '💓', 'strength': '️'}
+                        type_names = {'running': 'Бег', 'cardio': 'Кардио', 'strength': 'Силовая'}
                         
-                        with st.expander(f"🏋️ {workout.duration_minutes} мин | Интенсивность: {intensity_display} | Объем: {volume:.1f} кг"):
-                            for log in workout.logs:
-                                st.write(f"- **{log.exercise.name}**: {log.sets}×{log.reps} @ {log.weight} кг")
+                        with st.expander(f"{type_icons[w.workout_type]} {type_names[w.workout_type]}: {w.calories_burned:.0f} ккал"):
+                            if w.workout_type == 'running':
+                                st.write(f"📏 Дистанция: **{w.distance_km} км**")
+                                st.write(f"⚡ Средняя скорость: **{w.avg_speed_kmh} км/ч**")
+                                st.write(f"⏱ Длительность: **{w.duration_minutes} мин**")
+                            elif w.workout_type == 'cardio':
+                                st.write(f" Упражнение: **{w.exercise_name}**")
+                                st.write(f"⏱ Время подхода: **{w.duration_per_set_minutes} мин**")
+                                st.write(f" Подходов: **{w.sets_count}**")
+                                st.write(f" Всего: **{w.duration_minutes} мин**")
+                            elif w.workout_type == 'strength':
+                                st.write(f"🎯 Упражнение: **{w.exercise_name}**")
+                                st.write(f"⚖️ Нагрузка: **{w.weight_kg} кг**")
+                                st.write(f"🔁 Повторений: **{w.reps_count}**")
+                                st.write(f"📊 Подходов: **{w.sets_count}**")
+                                st.write(f" Длительность: **{w.duration_minutes} мин**")
                             
                             st.markdown("")
-                            if st.button("️ Удалить тренировку", key=f"del_w_{workout.workout_id}"):
-                                session.delete(workout)
+                            if st.button("🗑️ Удалить", key=f"del_w_{w.id}"):
+                                session.delete(w)
                                 session.commit()
                                 st.rerun()
                 else:
-                    st.info(f"📭 Тренировок за {selected_date.strftime('%d.%m.%Y')} не найдено")
+                    st.info(f"📭 Тренировок за {workout_date.strftime('%d.%m.%Y')} не найдено")
+            
+            with tab_reference:
+                st.header("📚 Справочник тренировок")
+                st.info("🚧 Раздел в разработке. Здесь появится информация о техниках выполнения упражнений, программах тренировок и рекомендациях.")
+                
+                st.markdown("### 📖 Полезная информация")
+                st.markdown("""
+                **Как считаются калории от активности:**
+                
+                🏃 **Бег:** ~1 ккал на кг веса на км пробега
+                
+                💓 **Кардио:** MET-коэффициент × вес(кг) × время(часы)
+                - Велотренажёр: MET 6.0
+                - Эллипсоид: MET 5.0
+                - Скакалка: MET 10.0
+                
+                🏋️ **Силовые:** Интенсивность × вес(кг) × время(часы)
+                - Лёгкая: коэффициент 3.0
+                - Средняя: коэффициент 3.5
+                - Тяжёлая: коэффициент 5.0
+                
+                👟 **Шаги:** ~0.04 ккал на шаг (масштабируется по весу)
+                """)
 
         # =========================================================================
         # СТРАНИЦА "МОЙ КАЛЕНДАРЬ" (Адаптивная неделя)
@@ -2166,9 +2300,9 @@ else:
                             display_plan(plan_data, is_today)
                         
                         else:
-                            st.info(" Рацион не составлен")
+                            st.info("📝 Рацион не составлен")
                             if st.button("✨ Сгенерировать", key=f"gen_{d_date}", use_container_width=True, type="primary"):
-                                with st.spinner("Генерируем рацион..."):
+                                with st.spinner("Генерируем рацион на всю неделю..."):
                                     # Получаем предпочтения
                                     favorites = [fp.food_name for fp in session.query(UserFoodPreference).filter(
                                         UserFoodPreference.user_id == current_user.user_id,
@@ -2191,7 +2325,15 @@ else:
                                     # Получаем цели
                                     user_goal = session.query(UserGoal).filter(UserGoal.user_id == current_user.user_id).first()
                                     
-                                    # Генерируем недельный план
+                                    # Если serving_distribution пустой, используем дефолтные значения
+                                    if not serving_distribution:
+                                        serving_distribution = {
+                                            "1": ["breakfast", "main"],
+                                            "2": ["soup", "second", "main"],
+                                            "3": ["second", "main", "salad"]
+                                        }
+                                    
+                                    # Генерируем недельный план ОДИН РАЗ
                                     weekly_plan = generate_weekly_plan(
                                         user_goal.target_calories if user_goal else 2000,
                                         user_goal.target_protein if user_goal else 150,
@@ -2210,20 +2352,30 @@ else:
                                     if 'error' in weekly_plan:
                                         st.error(weekly_plan['error'])
                                     else:
-                                        # Сохраняем план для этого дня
-                                        day_plan = weekly_plan.get(i, {})
+                                        # Сохраняем план для ВСЕХ 7 дней недели
+                                        for day_idx, day_date in enumerate(week_dates):
+                                            # Проверяем, нет ли уже плана на этот день
+                                            existing = session.query(GeneratedPlan).filter(
+                                                GeneratedPlan.user_id == current_user.user_id,
+                                                GeneratedPlan.date == day_date
+                                            ).first()
+                                            
+                                            if not existing:
+                                                day_plan = weekly_plan.get(day_idx, {})
+                                                
+                                                new_record = GeneratedPlan(
+                                                    user_id=current_user.user_id,
+                                                    date=day_date
+                                                )
+                                                
+                                                for meal_num in range(1, meals_per_day + 1):
+                                                    meal_key = f"meal_{meal_num}"
+                                                    setattr(new_record, f"meal_{meal_num}_json", json.dumps(day_plan.get(meal_key, [])))
+                                                
+                                                session.add(new_record)
                                         
-                                        new_record = GeneratedPlan(
-                                            user_id=current_user.user_id,
-                                            date=d_date
-                                        )
-                                        
-                                        for meal_num in range(1, meals_per_day + 1):
-                                            meal_key = f"meal_{meal_num}"
-                                            setattr(new_record, f"meal_{meal_num}_json", json.dumps(day_plan.get(meal_key, [])))
-                                        
-                                        session.add(new_record)
                                         session.commit()
+                                        st.success("✅ Рацион на всю неделю сгенерирован!")
                                         st.rerun()
                         
         # Закрываем сессию

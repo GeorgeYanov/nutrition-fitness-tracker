@@ -449,84 +449,69 @@ def generate_weekly_plan(target_calories, target_protein, target_fat, target_car
 
     return weekly_plan
     
-    safe_foods = []
-    for f in all_foods:
-        is_safe = True
-        f_cats = []
-        if hasattr(f, 'categories') and f.categories:
-            f_cats = [c.strip().lower() for c in f.categories.split(',')]
-        elif hasattr(f, 'category') and f.category:
-            f_cats = [f.category.lower()]
-            
-        f_name = f.name.lower()
-        
-        for allergen in user_allergen_names:
-            allergen = allergen.lower()
-            # Проверяем категории
-            if allergen in allergen_map:
-                for keyword in allergen_map[allergen]:
-                    if keyword in f_cats or keyword in f_name:
-                        is_safe = False
-                        break
-            # Прямое совпадение
-            if allergen in f_cats or allergen in f_name:
-                is_safe = False
-        if is_safe:
-            safe_foods.append(f)
 
-    if not safe_foods:
-        return {'error': 'Не найдено безопасных продуктов. Проверьте аллергии.'}
+def calculate_steps_calories(steps_count, user_weight_kg):
+    """
+    Рассчитывает калории, сожжённые при ходьбе.
+    Примерно 0.04-0.05 ккал на шаг в зависимости от веса.
+    """
+    if not steps_count or not user_weight_kg:
+        return 0
+    # Коэффициент: ~0.04 ккал на шаг для человека 70кг, масштабируется по весу
+    coefficient = 0.04 * (user_weight_kg / 70.0)
+    return steps_count * coefficient
 
-    # 2. Распределяем калории (30% / 40% / 30%)
-    meal_targets = {
-        'breakfast': daily_cal * 0.30,
-        'lunch': daily_cal * 0.40,
-        'dinner': daily_cal * 0.30
-    }
+
+def calculate_running_calories(distance_km, user_weight_kg):
+    """
+    Рассчитывает калории от бега.
+    Формула: ~1 ккал на кг веса на км бега
+    """
+    if not distance_km or not user_weight_kg:
+        return 0
+    return distance_km * user_weight_kg * 1.0
+
+
+def calculate_cardio_calories(duration_minutes, user_weight_kg, met_value=6.0):
+    """
+    Рассчитывает калории от кардио по MET-коэффициенту.
+    Формула: MET * вес(кг) * время(часы)
+    MET значения: 
+    - Велотренажёр умеренно: 6.0
+    - Эллипсоид: 5.0
+    - Скакалка: 10.0
+    - Бег на месте: 8.0
+    """
+    if not duration_minutes or not user_weight_kg:
+        return 0
+    hours = duration_minutes / 60.0
+    return met_value * user_weight_kg * hours
+
+
+def calculate_strength_calories(duration_minutes, user_weight_kg, intensity_factor=3.5):
+    """
+    Рассчитывает калории от силовой тренировки.
+    Формула: интенсивность * вес(кг) * время(часы)
+    intensity_factor: 3.0 (лёгкая), 3.5 (средняя), 5.0 (тяжёлая)
+    """
+    if not duration_minutes or not user_weight_kg:
+        return 0
+    hours = duration_minutes / 60.0
+    return intensity_factor * user_weight_kg * hours
+
+
+def calculate_total_activity_calories(steps_count, workout_sessions, user_weight_kg):
+    """
+    Суммирует калории от шагов и всех тренировок за день.
+    """
+    total = calculate_steps_calories(steps_count, user_weight_kg)
     
-    plan = {}
+    for session in workout_sessions:
+        if session.workout_type == 'running':
+            total += calculate_running_calories(session.distance_km, user_weight_kg)
+        elif session.workout_type == 'cardio':
+            total += calculate_cardio_calories(session.duration_minutes, user_weight_kg)
+        elif session.workout_type == 'strength':
+            total += calculate_strength_calories(session.duration_minutes, user_weight_kg)
     
-    for meal_type, cal_target in meal_targets.items():
-        # Ищем готовые блюда
-        ready_meals = [f for f in safe_foods if not getattr(f, 'is_basic', True)]
-        
-        if ready_meals and random.random() > 0.3: # 70% шанс выбрать готовое блюдо, если есть
-            chosen = random.choice(ready_meals)
-            weight = (cal_target / chosen.calories_per_100g * 100) if chosen.calories_per_100g > 0 else 250
-            plan[meal_type] = [{
-                'name': chosen.name, 
-                'weight': round(weight), 
-                'method': 'Без обработки', 
-                'time': 0,
-                'is_ready_meal': True
-            }]
-        else:
-            # Конструируем из базовых ингредиентов
-            proteins = [f for f in safe_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['meat', 'fish', 'eggs', 'dairy']]
-            carbs = [f for f in safe_foods if getattr(f, 'is_basic', True) and getattr(f, 'category', '') in ['grains', 'vegetables', 'bakery']]
-            
-            # Фоллбэк, если категорий нет
-            if not proteins: proteins = [f for f in safe_foods if getattr(f, 'is_basic', True)]
-            if not carbs: carbs = proteins 
-            
-            p = random.choice(proteins) if proteins else None
-            c = random.choice(carbs) if carbs else None
-            
-            components = []
-            # Базовые порции для расчета масштаба
-            w_p, w_c = 150, 200 
-            base_cals = 0
-            if p: base_cals += p.calories_per_100g * w_p / 100
-            if c: base_cals += c.calories_per_100g * w_c / 100
-            
-            if base_cals > 0:
-                scale = cal_target / base_cals
-                w_p = int(w_p * scale)
-                w_c = int(w_c * scale)
-            
-            if p: components.append({'name': p.name, 'weight': w_p, 'method': 'Запекание', 'time': 20})
-            if c: components.append({'name': c.name, 'weight': w_c, 'method': 'Варка', 'time': 15})
-            
-            plan[meal_type] = components
-
-    return plan
+    return total
