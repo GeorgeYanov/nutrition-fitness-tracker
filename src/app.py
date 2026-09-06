@@ -528,143 +528,138 @@ else:
                 st.info("✅ У тебя пока нет отмеченных аллергий.")
 
         # =========================================================================
-        # СТРАНИЦА "МОЯ ЕДА" (Управление справочником)
+        # СТРАНИЦА "МОЯ ЕДА" (Умный справочник с поиском и фильтрацией)
         # =========================================================================
         elif page == "🥗 Моя еда":
             st.header("🥗 Справочник моей еды")
+            st.info("💡 Здесь отображаются все продукты. Ты можешь искать их по названию и удалять только те, что добавил сам.")
             
-            # Получаем все продукты
+            # 1. Получаем все продукты
             base_foods = get_all_foods()
             custom_foods = session.query(CustomFood).filter(CustomFood.user_id == current_user.user_id).all()
             all_foods = base_foods + custom_foods
             
-            if all_foods:
+            # 2. Вкладки
+            tab1, tab2 = st.tabs(["🥬 Базовые продукты", "🍲 Готовые блюда"])
+            
+            # Универсальная функция для рендера содержимого вкладки
+            def render_tab_content(is_basic_target):
+                # А. Фильтрация по типу (базовый/готовый)
+                filtered_foods = [f for f in all_foods if getattr(f, 'is_basic', True) == is_basic_target]
+                
+                # Б. Поисковая строка (уникальный ключ для каждой вкладки)
+                search_query = st.text_input(
+                    "🔍 Поиск по названию:", 
+                    key=f"search_{'basic' if is_basic_target else 'prepared'}",
+                    placeholder="Введите название продукта..."
+                )
+                
+                if search_query:
+                    filtered_foods = [f for f in filtered_foods if search_query.lower() in f.name.lower()]
+                
+                if not filtered_foods:
+                    st.info(f"📭 В этой категории ничего не найдено.")
+                    return
+                
                 import pandas as pd
-                
-                # Разделяем на две группы
-                basic_foods = [f for f in all_foods if getattr(f, 'is_basic', True)]
-                prepared_foods = [f for f in all_foods if not getattr(f, 'is_basic', True)]
-                
-                tab1, tab2 = st.tabs(["🥬 Базовые продукты", "🍲 Готовые блюда"])
-                
-                # Вспомогательная функция для рендера таблицы
-                def render_food_table(foods_list, title):
-                    if not foods_list:
-                        st.info(f"📭 В категории '{title}' пока нет продуктов.")
-                        return
-                    
-                    data_macros = []
-                    for f in foods_list:
-                        categories = get_food_categories(f.food_id) if hasattr(f, 'food_id') else []
-                        cat_display = ", ".join([f"{c.icon} {c.display_name}" for c in categories]) if categories else "Без категории"
-                        
-                        data_macros.append({
-                            "Название": f.name,
-                            "Категории": cat_display,
-                            "Ккал": f.calories_per_100g,
-                            "Белки": f.protein_per_100g,
-                            "Жиры": f.fat_per_100g,
-                            "Углеводы": f.carbs_per_100g,
-                        })
-                    
-                    df = pd.DataFrame(data_macros)
-                    st.dataframe(df, width='stretch', hide_index=True)
-
-                with tab1:
-                    st.subheader("Ингредиенты для готовки")
-                    render_food_table(basic_foods, "Базовые продукты")
-                
-                with tab2:
-                    st.subheader("Сложные блюда и рецепты")
-                    render_food_table(prepared_foods, "Готовые блюда")
-                
-                st.markdown("---")
-            
-            foods = get_all_foods()
-            food_options = {f.name: f for f in foods}
-            
-            if foods:
                 
                 data_macros = []
                 data_micros = []
                 
-                for f in foods:
-                    # Получаем категории продукта
-                    categories = get_food_categories(f.food_id)
+                for f in filtered_foods:
+                    # Категории (только для base_foods)
+                    categories = get_food_categories(f.food_id) if hasattr(f, 'food_id') else []
                     cat_display = ", ".join([f"{c.icon} {c.display_name}" for c in categories]) if categories else "Без категории"
+                    is_custom_tag = " *(Твой)*" if hasattr(f, 'custom_food_id') else ""
                     
                     data_macros.append({
-                        "Название": f.name,
+                        "Название": f"{f.name}{is_custom_tag}",
                         "Категории": cat_display,
                         "Ккал": f.calories_per_100g,
                         "Белки": f.protein_per_100g,
                         "Жиры": f.fat_per_100g,
                         "Углеводы": f.carbs_per_100g,
-                        "ID": f.food_id
+                        "ID": f.food_id if hasattr(f, 'food_id') else f.custom_food_id
                     })
                     
                     data_micros.append({
-                        "Название": f.name,
-                        "Категории": cat_display,
-                        "Вит.А (мкг)": f.vitamin_a or 0,
-                        "Вит.C (мг)": f.vitamin_c or 0,
-                        "Вит.D (мкг)": f.vitamin_d or 0,
-                        "Вит.E (мг)": f.vitamin_e or 0,
-                        "Вит.K (мкг)": f.vitamin_k or 0,
-                        "Вит.B (мг)": f.vitamin_b_complex or 0,
-                        "Железо (мг)": f.iron or 0,
-                        "Кальций (мг)": f.calcium or 0,
-                        "Магний (мг)": f.magnesium or 0,
-                        "Цинк (мг)": f.zinc or 0,
-                        "Йод (мкг)": f.iodine or 0,
-                        "Селен (мкг)": f.selenium or 0,
-                        "ID": f.food_id
+                        "Название": f"{f.name}{is_custom_tag}",
+                        "Вит.А": f.vitamin_a or 0,
+                        "Вит.C": f.vitamin_c or 0,
+                        "Вит.D": f.vitamin_d or 0,
+                        "Вит.E": f.vitamin_e or 0,
+                        "Вит.K": f.vitamin_k or 0,
+                        "Вит.B": f.vitamin_b_complex or 0,
+                        "Железо": f.iron or 0,
+                        "Кальций": f.calcium or 0,
+                        "Магний": f.magnesium or 0,
+                        "Цинк": f.zinc or 0,
+                        "Йод": f.iodine or 0,
+                        "Селен": f.selenium or 0,
+                        "ID": f.food_id if hasattr(f, 'food_id') else f.custom_food_id
                     })
                 
                 df_macros = pd.DataFrame(data_macros)
                 df_micros = pd.DataFrame(data_micros)
                 
+                # В. Компактная таблица макронутриентов с форматированием
                 st.subheader("📊 Макронутриенты (на 100г)")
                 st.dataframe(
                     df_macros[["Название", "Категории", "Ккал", "Белки", "Жиры", "Углеводы"]], 
                     width='stretch', 
-                    hide_index=True
+                    hide_index=True,
+                    column_config={
+                        "Ккал": st.column_config.NumberColumn(format="%.0f"),
+                        "Белки": st.column_config.NumberColumn(format="%.1f г"),
+                        "Жиры": st.column_config.NumberColumn(format="%.1f г"),
+                        "Углеводы": st.column_config.NumberColumn(format="%.1f г"),
+                    }
                 )
                 
-                st.markdown("---")
-                
-                # Отображаем микронутриенты в раскрывающемся списке
-                with st.expander("🧪 Показать полную таблицу микронутриентов (витамины и минералы)", expanded=False):
-                    st.caption("Значение 0 означает, что данные не были указаны при создании продукта.")
+                # Г. Компактная таблица микронутриентов внутри expander
+                with st.expander("🧪 Показать микронутриенты", expanded=False):
                     st.dataframe(
-                        df_micros[["Название", "Вит.А (мкг)", "Вит.C (мг)", "Вит.D (мкг)", "Вит.E (мг)", "Вит.K (мкг)", "Вит.B (мг)", "Железо (мг)", "Кальций (мг)", "Магний (мг)", "Цинк (мг)", "Йод (мкг)", "Селен (мкг)"]], 
+                        df_micros.drop(columns=["ID"]), 
                         width='stretch', 
-                        hide_index=True
+                        hide_index=True,
+                        column_config={col: st.column_config.NumberColumn(format="%.1f") for col in df_micros.columns if col != "Название"}
                     )
                 
                 st.markdown("---")
                 st.subheader("🗑️ Управление справочником")
+                st.caption("Здесь можно удалить только *твои* добавленные продукты, отображаемые в этой вкладке.")
                 
-                with st.form("delete_food_form"):
-                    st.caption("Выбери продукт, который был добавлен с ошибкой, чтобы удалить его из справочника.")
-                    food_names = [f.name for f in foods]
-                    food_to_delete = st.selectbox("Продукт для удаления:", food_names)
-                    
-                    col1, col2 = st.columns([1, 3])
-                    with col1:
-                        confirm_delete = st.form_submit_button("Удалить", type="primary")
-                    
-                    if confirm_delete:
-                        food_obj = session.query(CustomFood).filter(FoodItem.name == food_to_delete).first()
-                        if food_obj:
-                            session.delete(food_obj)
-                            session.commit()
-                            st.success(f"✅ Продукт '{food_to_delete}' успешно удален из справочника!")
-                            st.rerun()
-            
-            else:
-                st.info("📭 Твой личный справочник пока пуст. Добавь свой первый кастомный продукт во вкладке '🍎 Питание' -> '🔍 Другое (добавить свой)'!")
+                # Д. Фильтруем только кастомные продукты из текущего отфильтрованного списка
+                custom_filtered = [f for f in filtered_foods if hasattr(f, 'custom_food_id')]
+                
+                if custom_filtered:
+                    with st.form(f"delete_food_form_{'basic' if is_basic_target else 'prepared'}"):
+                        food_names = [f.name for f in custom_filtered]
+                        food_to_delete = st.selectbox("Выбери продукт для удаления:", food_names)
                         
+                        col1, col2 = st.columns([1, 3])
+                        with col1:
+                            confirm_delete = st.form_submit_button("Удалить", type="primary")
+                        
+                        if confirm_delete:
+                            food_obj = session.query(CustomFood).filter(
+                                CustomFood.name == food_to_delete, 
+                                CustomFood.user_id == current_user.user_id
+                            ).first()
+                            if food_obj:
+                                session.delete(food_obj)
+                                session.commit()
+                                st.success(f"✅ Продукт '{food_to_delete}' успешно удален!")
+                                st.rerun()
+                else:
+                    st.info("📭 В этой категории нет твоих личных продуктов для удаления.")
+
+            # 3. Рендерим содержимое вкладок
+            with tab1:
+                render_tab_content(is_basic_target=True)
+            
+            with tab2:
+                render_tab_content(is_basic_target=False)              
         # ============================================================================
         # СТРАНИЦА ПИТАНИЯ (НОВАЯ ВЕРСИЯ - ОСТАВЬ ТОЛЬКО ЭТУ)
         # ============================================================================
