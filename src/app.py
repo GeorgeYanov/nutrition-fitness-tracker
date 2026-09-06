@@ -2,7 +2,7 @@
 Главный файл приложения - интерфейс на Streamlit с авторизацией
 """
 import streamlit as st
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 from database import (
     get_session, User, Exercise, FoodLog, Workout, WorkoutLog, 
@@ -117,7 +117,10 @@ else:
             st.success(f"👤 {current_user.full_name}")
             st.caption(current_user.email)
             st.markdown("---")
-            page = st.radio("Навигация", ["🏠 Главная", "👤 Профиль", "🥗 Моя еда", "🍎 Питание", "🏋️ Тренировки", "🩺 Анализы", "📊 Прогресс"])
+            page = st.radio(
+                "Навигация", 
+                ["🏠 Главная", "👤 Профиль", "🥗 Моя еда", "🍎 Питание", "🏋️ Тренировки", "🩺 Анализы", "📅 Мой календарь", "📊 Прогресс"]
+            )
             st.markdown("---")
             if st.button("🚪 Выйти из аккаунта", width='stretch'):
                 logout()
@@ -1508,6 +1511,63 @@ else:
                             st.info("Недостаточно данных для построения графика.")
                 else:
                     st.info("📭 Вы еще не внесли ни одного результата анализов. Перейдите во вкладку 'Внести результаты'.")
+
+        # =========================================================================
+        # СТРАНИЦА "МОЙ КАЛЕНДАРЬ" (Адаптивная неделя)
+        # =========================================================================
+        elif page == "📅 Мой календарь":
+            st.header("📅 Мой календарь питания")
+            st.caption("План на текущую неделю. Текущий день выделен для детального просмотра.")
+            
+            # 1. Вычисляем даты текущей недели (Понедельник = 0, Воскресенье = 6)
+            today = date.today()
+            start_of_week = today - timedelta(days=today.weekday())
+            week_dates = [start_of_week + timedelta(days=i) for i in range(7)]
+            
+            day_names = [
+                "Понедельник", "Вторник", "Среда", "Четверг", 
+                "Пятница", "Суббота", "Воскресенье"
+            ]
+            
+            # 2. Создаем адаптивные пропорции для колонок
+            # Текущий день получает ширину 3 (или 4), остальные дни - ширину 1
+            col_widths = [3 if i == today.weekday() else 1 for i in range(7)]
+            
+            # 3. Генерируем колонки
+            cols = st.columns(col_widths)
+            
+            # 4. Заполняем каждую колонку
+            for i, (col, d_date, d_name) in enumerate(zip(cols, week_dates, day_names)):
+                with col:
+                    is_today = (i == today.weekday())
+                    
+                    # Визуальное выделение текущего дня с помощью рамки (border)
+                    with st.container(border=is_today):
+                        if is_today:
+                            st.markdown(f"### <span style='color:#1f77b4; font-weight:bold;'>{d_name}</span>", unsafe_allow_html=True)
+                            st.markdown(f"**{d_date.strftime('%d.%m')}** *(Сегодня)*")
+                        else:
+                            st.markdown(f"**{d_name}**")
+                            st.markdown(f"{d_date.strftime('%d.%m')}")
+                        
+                        st.divider()
+                        
+                        # 5. Плейсхолдеры для приемов пищи
+                        # Для текущего дня они более детальные, для остальных - свернутые или краткие
+                        if is_today:
+                            st.markdown("##### 🌅 Завтрак")
+                            st.info("🔄 Здесь генератор предложит варианты завтрака")
+                            
+                            st.markdown("##### ☀️ Обед")
+                            st.info("🔄 Здесь генератор предложит варианты обеда")
+                            
+                            st.markdown("##### 🌙 Ужин")
+                            st.info("🔄 Здесь генератор предложит варианты ужина")
+                        else:
+                            # Для будущих дней пока просто заглушка, чтобы не загромождать UI
+                            st.markdown("📝 *План на день пока пуст*")
+                            st.button("Сгенерировать", key=f"gen_{i}", disabled=True, use_container_width=True)
+
         # ============================================================================
         # СТРАНИЦА ПРОГРЕССА
         # ============================================================================
