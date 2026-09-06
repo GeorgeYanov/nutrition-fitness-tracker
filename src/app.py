@@ -9,7 +9,7 @@ from database import (
     UserMeasurement, UserGoal, MedicalResult, ComplexMeal, 
     ComplexMealComponent, Allergen, UserAllergy, CustomFood
 )
-from foods_database import get_all_foods, get_food_by_name, FoodItem
+from foods_database import get_all_foods, get_food_by_name, FoodItem, get_all_categories, get_food_categories, get_foods_by_category, FoodCategory
 from calculations import (
         calculate_food_calories, calculate_daily_totals, calculate_workout_volume, 
         calculate_age, calculate_bmr, calculate_tdee, calculate_macro_goals, 
@@ -538,25 +538,28 @@ else:
             food_options = {f.name: f for f in foods}
             
             if foods:
-                import pandas as pd
                 
                 data_macros = []
                 data_micros = []
                 
                 for f in foods:
-                    # 1. Данные для основной таблицы (Макронутриенты)
+                    # Получаем категории продукта
+                    categories = get_food_categories(f.food_id)
+                    cat_display = ", ".join([f"{c.icon} {c.display_name}" for c in categories]) if categories else "Без категории"
+                    
                     data_macros.append({
                         "Название": f.name,
+                        "Категории": cat_display,
                         "Ккал": f.calories_per_100g,
                         "Белки": f.protein_per_100g,
                         "Жиры": f.fat_per_100g,
                         "Углеводы": f.carbs_per_100g,
-                        "ID": f.food_id # Скрытый ID для удаления
+                        "ID": f.food_id
                     })
                     
-                    # 2. Данные для таблицы микронутриентов (None заменяем на 0 для чистоты)
                     data_micros.append({
                         "Название": f.name,
+                        "Категории": cat_display,
                         "Вит.А (мкг)": f.vitamin_a or 0,
                         "Вит.C (мг)": f.vitamin_c or 0,
                         "Вит.D (мкг)": f.vitamin_d or 0,
@@ -575,10 +578,9 @@ else:
                 df_macros = pd.DataFrame(data_macros)
                 df_micros = pd.DataFrame(data_micros)
                 
-                # Отображаем основную таблицу
                 st.subheader("📊 Макронутриенты (на 100г)")
                 st.dataframe(
-                    df_macros[["Название", "Ккал", "Белки", "Жиры", "Углеводы"]], 
+                    df_macros[["Название", "Категории", "Ккал", "Белки", "Жиры", "Углеводы"]], 
                     width='stretch', 
                     hide_index=True
                 )
@@ -728,6 +730,15 @@ else:
                                     new_zinc = st.number_input("Цинк (мг)", min_value=0.0, value=0.0, step=0.1, key="simple_zinc")
                                     new_iodine = st.number_input("Йод (мкг)", min_value=0.0, value=0.0, step=1.0, key="simple_iodine")
                                     new_selenium = st.number_input("Селен (мкг)", min_value=0.0, value=0.0, step=1.0, key="simple_selenium")
+                            with st.expander("🏷️ Категории продукта", expanded=False):
+                                st.caption("Выбери одну или несколько категорий (например, 'Молочные' и 'Грибы' для крем-супа)")
+                                all_categories = get_all_categories()
+                                selected_cats = []
+                                cols_cat = st.columns(3)
+                                for i, cat in enumerate(all_categories):
+                                    with cols_cat[i % 3]:
+                                        if st.checkbox(f"{cat.icon} {cat.display_name}", key=f"cat_{cat.category_id}"):
+                                            selected_cats.append(cat.name)
                         
                         weight = st.number_input(
                             "Сколько грамм съел?",
@@ -782,7 +793,8 @@ else:
                                     magnesium=new_magnesium if new_magnesium > 0 else None,
                                     zinc=new_zinc if new_zinc > 0 else None,
                                     iodine=new_iodine if new_iodine > 0 else None,
-                                    selenium=new_selenium if new_selenium > 0 else None
+                                    selenium=new_selenium if new_selenium > 0 else None,
+                                    categories=",".join(selected_cats) if selected_cats else None
                                 )
                                 session.add(selected_food)
                                 session.commit()

@@ -1,9 +1,9 @@
 """
 Модуль для работы с базой данных справочника продуктов
 """
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 import os
 
 # Путь к файлу базы данных продуктов
@@ -43,6 +43,26 @@ class FoodItem(FoodsBase):
     
     category = Column(String(50))  # Например: 'grains', 'meat', 'dairy'
 
+class FoodCategory(FoodsBase):
+    """Справочник категорий продуктов"""
+    __tablename__ = 'food_categories'
+    
+    category_id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)  # например, 'dairy', 'citrus', 'mushrooms'
+    display_name = Column(String(100), nullable=False)  # Русское название для отображения
+    icon = Column(String(10))  # Эмодзи для красоты
+
+
+class FoodCategoryLink(FoodsBase):
+    """Связь продуктов с категориями (многие-ко-многим)"""
+    __tablename__ = 'food_category_links'
+    
+    link_id = Column(Integer, primary_key=True)
+    food_id = Column(Integer, ForeignKey('food_items.food_id'), nullable=False)
+    category_id = Column(Integer, ForeignKey('food_categories.category_id'), nullable=False)
+    
+    food = relationship('FoodItem', backref='category_links')
+    category = relationship('FoodCategory', backref='food_links')
 
 def init_foods_db():
     """Создает таблицу продуктов и заполняет базовыми данными"""
@@ -105,6 +125,73 @@ def init_foods_db():
         print(f"✅ База продуктов создана и заполнена {len(basic_foods)} продуктами")
     else:
         print("✅ База продуктов уже существует")
+
+    # Создаем базовые категории
+    categories = [
+        FoodCategory(name='dairy', display_name='Молочные продукты', icon='🥛'),
+        FoodCategory(name='grains', display_name='Крупы и злаки', icon='🌾'),
+        FoodCategory(name='meat', display_name='Мясо и птица', icon=''),
+        FoodCategory(name='fish', display_name='Рыба и морепродукты', icon='🐟'),
+        FoodCategory(name='eggs', display_name='Яйца', icon='🥚'),
+        FoodCategory(name='vegetables', display_name='Овощи', icon='🥬'),
+        FoodCategory(name='fruits', display_name='Фрукты и ягоды', icon='🍎'),
+        FoodCategory(name='citrus', display_name='Цитрусовые', icon='🍊'),
+        FoodCategory(name='nuts', display_name='Орехи и семена', icon=''),
+        FoodCategory(name='legumes', display_name='Бобовые', icon='🫘'),
+        FoodCategory(name='oils', display_name='Масла и жиры', icon='🫙'),
+        FoodCategory(name='bakery', display_name='Хлеб и выпечка', icon='🍞'),
+        FoodCategory(name='mushrooms', display_name='Грибы', icon='🍄'),
+        FoodCategory(name='sweets', display_name='Сладости', icon='🍫'),
+        FoodCategory(name='beverages', display_name='Напитки', icon='🥤'),
+    ]
+    session.add_all(categories)
+    session.flush()  # Получаем category_id
+    
+    # Создаем словарь категорий для быстрого доступа
+    cat_dict = {cat.name: cat for cat in categories}
+    
+    # Привязываем продукты к категориям (многие-ко-многим)
+    food_category_map = {
+        'Гречка вареная': ['grains'],
+        'Рис белый вареный': ['grains'],
+        'Овсянка на воде': ['grains'],
+        'Макароны вареные': ['grains'],
+        'Куриная грудка вареная': ['meat'],
+        'Говядина вареная': ['meat'],
+        'Свинина нежирная': ['meat'],
+        'Лосось запеченный': ['fish'],
+        'Тунец консервированный': ['fish'],
+        'Творог 5%': ['dairy'],
+        'Молоко 2.5%': ['dairy'],
+        'Кефир 1%': ['dairy'],
+        'Сыр твердый': ['dairy'],
+        'Яйцо куриное вареное': ['eggs'],
+        'Огурцы свежие': ['vegetables'],
+        'Помидоры свежие': ['vegetables'],
+        'Морковь вареная': ['vegetables'],
+        'Картофель вареный': ['vegetables'],
+        'Банан': ['fruits'],
+        'Яблоко': ['fruits'],
+        'Апельсин': ['fruits', 'citrus'],  # Две категории!
+        'Масло подсолнечное': ['oils'],
+        'Масло оливковое': ['oils'],
+        'Масло сливочное': ['oils', 'dairy'],  # Две категории!
+        'Хлеб белый': ['bakery'],
+        'Хлеб черный (ржаной)': ['bakery'],
+    }
+    
+    for food in session.query(FoodItem).all():
+        if food.name in food_category_map:
+            for cat_name in food_category_map[food.name]:
+                if cat_name in cat_dict:
+                    link = FoodCategoryLink(
+                        food_id=food.food_id,
+                        category_id=cat_dict[cat_name].category_id
+                    )
+                    session.add(link)
+    
+    session.commit()
+    print(f"✅ Создано {len(categories)} категорий и привязаны к продуктам")
     
     session.close()
 
@@ -130,6 +217,36 @@ def get_food_by_name(name):
     session.close()
     return food
 
+def get_all_categories():
+    """Возвращает все категории"""
+    session = get_foods_session()
+    categories = session.query(FoodCategory).order_by(FoodCategory.display_name).all()
+    session.close()
+    return categories
+
+
+def get_food_categories(food_id):
+    """Возвращает категории конкретного продукта"""
+    session = get_foods_session()
+    links = session.query(FoodCategoryLink).filter(FoodCategoryLink.food_id == food_id).all()
+    categories = [link.category for link in links]
+    session.close()
+    return categories
+
+
+def get_foods_by_category(category_name):
+    """Возвращает все продукты в категории"""
+    session = get_foods_session()
+    category = session.query(FoodCategory).filter(FoodCategory.name == category_name).first()
+    if not category:
+        session.close()
+        return []
+    
+    links = session.query(FoodCategoryLink).filter(FoodCategoryLink.category_id == category.category_id).all()
+    food_ids = [link.food_id for link in links]
+    foods = session.query(FoodItem).filter(FoodItem.food_id.in_(food_ids)).all()
+    session.close()
+    return foods
 
 if __name__ == '__main__':
     init_foods_db()
